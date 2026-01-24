@@ -53,3 +53,9 @@ clock_period_results.txt
 
 # Large library files (optional - comment out if you want to include them)
 # BUFLIB/lib_*/*.lib
+
+# OpenTimer build artifacts
+opentimer/OpenTimer/build/
+opentimer/OpenTimer/bin/
+opentimer/OpenTimer/.git/
+opentimer/OpenTimer/.backup_*/
