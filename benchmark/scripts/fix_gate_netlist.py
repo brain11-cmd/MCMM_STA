@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import re
-from typing import List
+from typing import List, Set, Tuple
 
 ASSIGN_RE = re.compile(r"^\s*assign\s+(?P<lhs>.+?)\s*=\s*(?P<rhs>.+?)\s*;\s*$")
 
@@ -66,7 +66,18 @@ def expand_concat_constants(items: List[str]) -> List[str]:
     return expanded
 
 
-def convert_assigns(lines: List[str], cell_index_start: int) -> (List[str], List[str], int):
+def _next_available_name(prefix: str, index: int, existing: Set[str]) -> Tuple[str, int]:
+    while True:
+        name = f"{prefix}{index}_"
+        if name not in existing:
+            existing.add(name)
+            return name, index + 1
+        index += 1
+
+
+def convert_assigns(
+    lines: List[str], cell_index_start: int, existing_names: Set[str]
+) -> Tuple[List[str], List[str], int]:
     new_lines: List[str] = []
     instances: List[str] = []
     cell_index = cell_index_start
@@ -101,15 +112,17 @@ def convert_assigns(lines: List[str], cell_index_start: int) -> (List[str], List
             rhs = rhs.strip()
             if SINGLE_CONST_RE.match(rhs):
                 const_val = SINGLE_CONST_RE.match(rhs).group(1)
-                cell_name = f"_assign_tie_{cell_index}_"
-                cell_index += 1
+                cell_name, cell_index = _next_available_name(
+                    "_assign_tie_", cell_index, existing_names
+                )
                 cell_type = "TIEH_RVT" if const_val == "1" else "TIEL_RVT"
                 instances.append(
                     f"  {cell_type} {cell_name} (\n    .Y({lhs})\n  );\n"
                 )
                 continue
-            cell_name = f"_assign_buf_{cell_index}_"
-            cell_index += 1
+            cell_name, cell_index = _next_available_name(
+                "_assign_buf_", cell_index, existing_names
+            )
             instances.append(
                 f"  IBUFFX2_RVT {cell_name} (\n    .A({rhs}),\n    .Y({lhs})\n  );\n"
             )
@@ -153,6 +166,20 @@ def remove_print_blocks(content: str) -> str:
     return PRINT_BLOCK_RE.sub("", content)
 
 
+def _extract_existing_names(content: str) -> Set[str]:
+    names = set()
+    for match in re.finditer(r"^\s*\w+\s+(\w+)\s*\(", content, re.MULTILINE):
+        names.add(match.group(1))
+    return names
+
+
+def _next_assign_index(content: str) -> int:
+    indices = []
+    for match in re.finditer(r"_assign_(?:buf|tie)_(\d+)_", content):
+        indices.append(int(match.group(1)))
+    return max(indices) + 1 if indices else 0
+
+
 def process_netlist(path: str, remove_print: bool, fix_isolation: bool) -> None:
     with open(path, "r", encoding="utf-8") as file:
         content = file.read()
@@ -163,8 +190,10 @@ def process_netlist(path: str, remove_print: bool, fix_isolation: bool) -> None:
     if fix_isolation:
         content = replace_isolation_cells(content)
 
+    existing_names = _extract_existing_names(content)
+    next_index = _next_assign_index(content)
     lines = content.splitlines(keepends=True)
-    new_lines, instances, _ = convert_assigns(lines, 0)
+    new_lines, instances, _ = convert_assigns(lines, next_index, existing_names)
 
     if instances:
         updated_lines = []
