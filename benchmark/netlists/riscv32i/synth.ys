@@ -1,0 +1,49 @@
+# Yosys synthesis for riscv32i -> SAED32
+
+# 读取所有 Verilog 文件
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\adder.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\alu.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\aludec.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\controller.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\datapath.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\dmem.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\flopenr.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\flopens.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\flopr.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\magcompare2b.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\magcompare2c.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\magcompare32.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\maindec.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\mux2.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\mux3.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\mux4.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\mux5.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\mux8.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\regfile.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\riscv.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\rom.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\shifter.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\signext.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\riscv32i\top.v"
+
+# 设置顶层模块
+hierarchy -check -top riscv_top
+
+# 综合优化
+proc
+flatten
+opt -full
+
+# 技术映射到 SAED32
+techmap
+abc -liberty "D:\bishe database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+
+# 清理优化
+opt_clean -purge
+clean
+
+# 输出门级网表
+write_verilog -noattr -noexpr -nohex "D:\bishe database\benchmark\netlists\riscv32i\riscv32i_netlist.v"
+
+# 统计信息
+stat -liberty "D:\bishe database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"

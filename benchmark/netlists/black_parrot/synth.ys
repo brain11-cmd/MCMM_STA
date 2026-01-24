@@ -1,0 +1,26 @@
+# Yosys synthesis for black_parrot -> SAED32
+
+# 读取所有 Verilog 文件
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\black_parrot\pickled.v"
+
+# 设置顶层模块
+hierarchy -check -top black_parrot
+
+# 综合优化
+proc
+flatten
+opt -full
+
+# 技术映射到 SAED32
+techmap
+abc -liberty "D:\bishe database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+
+# 清理优化
+opt_clean -purge
+clean
+
+# 输出门级网表
+write_verilog -noattr -noexpr -nohex "D:\bishe database\benchmark\netlists\black_parrot\black_parrot_netlist.v"
+
+# 统计信息
+stat -liberty "D:\bishe database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"

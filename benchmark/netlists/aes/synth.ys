@@ -1,0 +1,32 @@
+# Yosys synthesis for aes -> SAED32
+
+# 读取所有 Verilog 文件
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\aes\aes_cipher_top.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\aes\aes_inv_cipher_top.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\aes\aes_inv_sbox.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\aes\aes_key_expand_128.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\aes\aes_rcon.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\aes\aes_sbox.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\aes\timescale.v"
+
+# 设置顶层模块
+hierarchy -check -top aes_cipher_top
+
+# 综合优化
+proc
+flatten
+opt -full
+
+# 技术映射到 SAED32
+techmap
+abc -liberty "D:\bishe database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+
+# 清理优化
+opt_clean -purge
+clean
+
+# 输出门级网表
+write_verilog -noattr -noexpr -nohex "D:\bishe database\benchmark\netlists\aes\aes_netlist.v"
+
+# 统计信息
+stat -liberty "D:\bishe database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"

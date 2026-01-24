@@ -1,0 +1,39 @@
+# Yosys synthesis for jpeg -> SAED32
+
+# 读取所有 Verilog 文件
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\dct_cos_table.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\dct_mac.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\dct.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\dctu.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\dctub.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\div_su.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\div_uu.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\fdct.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\jpeg_encoder.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\jpeg_qnr.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\jpeg_rle.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\jpeg_rle1.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\jpeg_rzs.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\jpeg\zigzag.v"
+
+# 设置顶层模块
+hierarchy -check -top jpeg_encoder
+
+# 综合优化
+proc
+flatten
+opt -full
+
+# 技术映射到 SAED32
+techmap
+abc -liberty "D:\bishe database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+
+# 清理优化
+opt_clean -purge
+clean
+
+# 输出门级网表
+write_verilog -noattr -noexpr -nohex "D:\bishe database\benchmark\netlists\jpeg\jpeg_netlist.v"
+
+# 统计信息
+stat -liberty "D:\bishe database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"

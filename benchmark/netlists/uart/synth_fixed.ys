@@ -1,0 +1,27 @@
+# Yosys synthesis for uart -> SAED32 (Fixed)
+
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\uart\uart.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\uart\uart_rx.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\uart\uart_tx.v"
+
+hierarchy -check -top uart
+
+proc
+flatten
+opt -full
+
+memory -nomap
+memory_dff
+memory_map
+
+techmap
+dfflibmap -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+abc -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+
+opt_clean -purge
+clean
+
+splitnets -ports
+
+write_verilog -noattr -noexpr -nohex "D:\bishe_database\benchmark\netlists\uart\uart_netlist.v"
+stat -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"

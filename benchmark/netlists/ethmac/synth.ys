@@ -1,0 +1,52 @@
+# Yosys synthesis for ethmac -> SAED32
+
+# 读取所有 Verilog 文件
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_clockgen.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_cop.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_crc.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_fifo.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_maccontrol.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_macstatus.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_miim.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_outputcontrol.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_random.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_receivecontrol.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_register.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_registers.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_rxaddrcheck.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_rxcounters.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_rxethmac.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_rxstatem.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_shiftreg.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_spram_256x32.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_top.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_transmitcontrol.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_txcounters.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_txethmac.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_txstatem.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\eth_wishbone.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\ethmac_defines.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\ethmac.v"
+read_verilog -sv "D:\bishe database\benchmark\rtl_src\ethmac\timescale.v"
+
+# 设置顶层模块
+hierarchy -check -top eth_top
+
+# 综合优化
+proc
+flatten
+opt -full
+
+# 技术映射到 SAED32
+techmap
+abc -liberty "D:\bishe database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+
+# 清理优化
+opt_clean -purge
+clean
+
+# 输出门级网表
+write_verilog -noattr -noexpr -nohex "D:\bishe database\benchmark\netlists\ethmac\ethmac_netlist.v"
+
+# 统计信息
+stat -liberty "D:\bishe database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"

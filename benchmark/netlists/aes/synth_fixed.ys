@@ -1,0 +1,31 @@
+# Yosys synthesis for aes -> SAED32 (Fixed)
+
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\aes\aes_cipher_top.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\aes\aes_inv_cipher_top.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\aes\aes_inv_sbox.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\aes\aes_key_expand_128.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\aes\aes_rcon.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\aes\aes_sbox.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\aes\timescale.v"
+
+hierarchy -check -top aes_cipher_top
+
+proc
+flatten
+opt -full
+
+memory -nomap
+memory_dff
+memory_map
+
+techmap
+dfflibmap -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+abc -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+
+opt_clean -purge
+clean
+
+splitnets -ports
+
+write_verilog -noattr -noexpr -nohex "D:\bishe_database\benchmark\netlists\aes\aes_netlist.v"
+stat -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"

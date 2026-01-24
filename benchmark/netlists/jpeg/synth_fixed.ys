@@ -1,0 +1,38 @@
+# Yosys synthesis for jpeg -> SAED32 (Fixed)
+
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\jpeg_encoder.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\dct.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\dct_cos_table.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\dct_mac.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\dctu.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\dctub.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\div_su.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\div_uu.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\fdct.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\jpeg_qnr.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\jpeg_rle.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\jpeg_rle1.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\jpeg_rzs.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\jpeg\zigzag.v"
+
+hierarchy -check -top jpeg_encoder
+
+proc
+flatten
+opt -full
+
+memory -nomap
+memory_dff
+memory_map
+
+techmap
+dfflibmap -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+abc -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+
+opt_clean -purge
+clean
+
+splitnets -ports
+
+write_verilog -noattr -noexpr -nohex "D:\bishe_database\benchmark\netlists\jpeg\jpeg_netlist.v"
+stat -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
