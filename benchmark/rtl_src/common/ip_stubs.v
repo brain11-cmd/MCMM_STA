@@ -28,6 +28,72 @@ module SyncSpRamBeNx64_00000008_00000100_0_2 (
     end
 endmodule
 
+module SyncSpRamBeNx64_00000008_00000100_0_2_d44 (
+    input         Clk_CI,
+    input         Rst_RBI,
+    input         CSel_SI,
+    input         WrEn_SI,
+    input  [7:0]  BEn_SI,
+    input  [63:0] WrData_DI,
+    input  [7:0]  Addr_DI,
+    output [63:0] RdData_DO
+);
+    SyncSpRamBeNx64_00000008_00000100_0_2 ram (
+        .Clk_CI(Clk_CI),
+        .Rst_RBI(Rst_RBI),
+        .CSel_SI(CSel_SI),
+        .WrEn_SI(WrEn_SI),
+        .BEn_SI(BEn_SI),
+        .WrData_DI(WrData_DI),
+        .Addr_DI(Addr_DI),
+        .RdData_DO(RdData_DO)
+    );
+endmodule
+
+module SyncSpRamBeNx64_00000008_00000100_0_2_d45 (
+    input         Clk_CI,
+    input         Rst_RBI,
+    input         CSel_SI,
+    input         WrEn_SI,
+    input  [7:0]  BEn_SI,
+    input  [63:0] WrData_DI,
+    input  [7:0]  Addr_DI,
+    output [63:0] RdData_DO
+);
+    SyncSpRamBeNx64_00000008_00000100_0_2 ram (
+        .Clk_CI(Clk_CI),
+        .Rst_RBI(Rst_RBI),
+        .CSel_SI(CSel_SI),
+        .WrEn_SI(WrEn_SI),
+        .BEn_SI(BEn_SI),
+        .WrData_DI(WrData_DI),
+        .Addr_DI(Addr_DI),
+        .RdData_DO(RdData_DO)
+    );
+endmodule
+
+module limping_SyncSpRamBeNx64_00000008_00000100_0_2 (
+    input         Clk_CI,
+    input         Rst_RBI,
+    input         CSel_SI,
+    input         WrEn_SI,
+    input  [7:0]  BEn_SI,
+    input  [63:0] WrData_DI,
+    input  [7:0]  Addr_DI,
+    output [63:0] RdData_DO
+);
+    SyncSpRamBeNx64_00000008_00000100_0_2 ram (
+        .Clk_CI(Clk_CI),
+        .Rst_RBI(Rst_RBI),
+        .CSel_SI(CSel_SI),
+        .WrEn_SI(WrEn_SI),
+        .BEn_SI(BEn_SI),
+        .WrData_DI(WrData_DI),
+        .Addr_DI(Addr_DI),
+        .RdData_DO(RdData_DO)
+    );
+endmodule
+
 module hard_mem_1rw_d512_w64_wrapper (
     input         clk_i,
     input         reset_i,
@@ -301,7 +367,7 @@ module ibex_wrapper (
     input         NMI,
     input         EXT_IRQ,
     input  [27:0] IRQ,
-    input  [7:0]  SYSTICKCLKDIV
+    input  [23:0] SYSTICKCLKDIV
 );
     assign HADDR = 32'b0;
     assign HWRITE = 1'b0;
@@ -319,4 +385,3 @@ module HAxp5_ASAP7_75t_R (
     assign CON = A & B;
     assign SN = A ^ B;
 endmodule
-
