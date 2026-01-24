@@ -15,15 +15,7 @@ param(
 
 # 设计配置：设计名 -> 顶层模块名
 $designConfig = @{
-    "gcd"          = "gcd"
-    "uart"         = "uart"
-    "spi"          = "spi"
-    "fifo"         = "fifo"
     "chameleon"    = "soc_core"
-    "aes"          = "aes_cipher_top"
-    "ethmac"       = "eth_top"
-    "jpeg"         = "jpeg_encoder"
-    "dynamic_node" = "dynamic_node_top_wrap"
     "riscv32i"     = "riscv_top"
     "ariane"       = "ariane"
     "ariane133"    = "ariane"
