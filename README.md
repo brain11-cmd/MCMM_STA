@@ -16,12 +16,10 @@ bishe_database/
 │   ├── lib_rvt/       # RVT 库（27 个 PVT corners）
 │   ├── lib_lvt/       # LVT 库
 │   └── lib_hvt/       # HVT 库
-└── OpenTimer/         # OpenTimer 时序分析工具（子模块）
-
-opentimer/
-└── OpenTimer/         # OpenTimer 源代码（已修改）
-    ├── bin/           # 可执行文件
-    └── ot/             # 源代码（已修改 arc.hpp）
+└── opentimer/         # OpenTimer 时序分析工具
+    └── OpenTimer/     # OpenTimer 源代码（已修改）
+        ├── bin/       # 可执行文件（编译后）
+        └── ot/        # 源代码（已修改 arc.hpp）
 ```
 
 ## 核心功能
@@ -40,31 +38,52 @@ opentimer/
 
 ## 使用方法
 
-### 1. 综合 Benchmark
+### 1. 编译 OpenTimer
+
+```bash
+cd opentimer/OpenTimer
+mkdir build && cd build
+cmake ..
+make -j4
+```
+
+### 2. 综合 Benchmark
+
 ```powershell
 cd benchmark\scripts
 powershell -ExecutionPolicy Bypass -File resynth_benchmarks.ps1
 ```
 
-### 2. 优化时钟周期
+### 3. 优化时钟周期
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File quick_optimize.ps1
 ```
 
-### 3. 运行 OpenTimer 分析
+### 4. 运行 OpenTimer 分析
+
 ```bash
-cd /mnt/d/opentimer/OpenTimer
+cd opentimer/OpenTimer
 ./bin/ot-shell < test_aes.tcl
 ```
 
 ## 依赖
 
-- OpenTimer 2.1.0
+- OpenTimer 2.1.0 (已包含，已修改)
 - Yosys (用于综合)
-- SAED32 RVT 标准单元库
+- SAED32 RVT 标准单元库 (已包含)
+
+## OpenTimer 修改
+
+本项目对 OpenTimer 进行了修改，添加了 `arc.hpp` 中的 `delay()` 方法，用于访问时序弧的延迟信息，便于 GNN 特征提取。
 
 ## 许可证
 
-- OpenTimer: 见 OpenTimer/LICENSE
+- OpenTimer: 见 `opentimer/OpenTimer/LICENSE`
 - SAED32 库: 见相应许可证文件
 
+## 相关文档
+
+- `PROJECT_STRUCTURE.md` - 项目结构详细说明
+- `GITHUB_UPLOAD_GUIDE.md` - GitHub 上传指南
+- `PUSH_INSTRUCTIONS.md` - 推送步骤说明
