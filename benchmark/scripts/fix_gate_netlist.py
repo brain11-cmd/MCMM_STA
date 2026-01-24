@@ -77,9 +77,8 @@ def _next_available_name(prefix: str, index: int, existing: Set[str]) -> Tuple[s
 
 def convert_assigns(
     lines: List[str], cell_index_start: int, existing_names: Set[str]
-) -> Tuple[List[str], List[str], int]:
+) -> Tuple[List[str], int]:
     new_lines: List[str] = []
-    instances: List[str] = []
     cell_index = cell_index_start
 
     for line in lines:
@@ -116,18 +115,18 @@ def convert_assigns(
                     "_assign_tie_", cell_index, existing_names
                 )
                 cell_type = "TIEH_RVT" if const_val == "1" else "TIEL_RVT"
-                instances.append(
+                new_lines.append(
                     f"  {cell_type} {cell_name} (\n    .Y({lhs})\n  );\n"
                 )
                 continue
             cell_name, cell_index = _next_available_name(
                 "_assign_buf_", cell_index, existing_names
             )
-            instances.append(
+            new_lines.append(
                 f"  IBUFFX2_RVT {cell_name} (\n    .A({rhs}),\n    .Y({lhs})\n  );\n"
             )
 
-    return new_lines, instances, cell_index
+    return new_lines, cell_index
 
 
 def replace_isolation_cells(content: str) -> str:
@@ -193,21 +192,8 @@ def process_netlist(path: str, remove_print: bool, fix_isolation: bool) -> None:
     existing_names = _extract_existing_names(content)
     next_index = _next_assign_index(content)
     lines = content.splitlines(keepends=True)
-    new_lines, instances, _ = convert_assigns(lines, next_index, existing_names)
-
-    if instances:
-        updated_lines = []
-        inserted = False
-        for line in new_lines:
-            if line.strip() == "endmodule" and not inserted:
-                updated_lines.extend(instances)
-                inserted = True
-            updated_lines.append(line)
-        if not inserted:
-            updated_lines.extend(instances)
-        content = "".join(updated_lines)
-    else:
-        content = "".join(new_lines)
+    new_lines, _ = convert_assigns(lines, next_index, existing_names)
+    content = "".join(new_lines)
 
     with open(path, "w", encoding="utf-8") as file:
         file.write(content)
