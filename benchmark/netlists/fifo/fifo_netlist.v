@@ -3963,11 +3963,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .A(_1038_),
     .Y(\fifo_instance.wptr_full.wbinnext[5] )
   );
-  ISOLANDX1_RVT _2661_ (
-    .D(\fifo_instance.fifomem.waddr[3] ),
-    .ISO(\fifo_instance.fifomem.waddr[4] ),
-    .Q(_1039_)
-  );
+  AND2X1_RVT _2661_ (
+  .A1(\fifo_instance.fifomem.waddr[3]),
+  .A2(\fifo_instance.fifomem.waddr[4]),
+  .Y(_1039_)
+);
   AND2X1_RVT _2662_ (
     .A1(\fifo_instance.fifomem.waddr[2] ),
     .A2(_1039_),
@@ -4002,21 +4002,21 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .A2(_1043_),
     .Y(\fifo_instance.wptr_full.wbinnext[3] )
   );
-  ISOLORX1_RVT _2668_ (
-    .D(_1036_),
-    .ISO(\fifo_instance.fifomem.waddr[2] ),
-    .Q(_1044_)
-  );
+  OR2X1_RVT _2668_ (
+  .A1(_1036_),
+  .A2(\fifo_instance.fifomem.waddr[2]),
+  .Y(_1044_)
+);
   XNOR2X1_RVT _2669_ (
     .A1(_1028_),
     .A2(_1036_),
     .Y(\fifo_instance.wptr_full.wbinnext[2] )
   );
-  ISOLANDX1_RVT _2670_ (
-    .D(_1029_),
-    .ISO(_1035_),
-    .Q(_1045_)
-  );
+  AND2X1_RVT _2670_ (
+  .A1(_1029_),
+  .A2(_1035_),
+  .Y(_1045_)
+);
   XNOR2X1_RVT _2671_ (
     .A1(\fifo_instance.fifomem.waddr[1] ),
     .A2(_1035_),
@@ -4071,11 +4071,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .A2(_1052_),
     .Y(\fifo_instance.rptr_empty.rbinnext[5] )
   );
-  ISOLORX1_RVT _2681_ (
-    .D(_1051_),
-    .ISO(\fifo_instance.fifomem.raddr[4] ),
-    .Q(_1053_)
-  );
+  OR2X1_RVT _2681_ (
+  .A1(_1051_),
+  .A2(\fifo_instance.fifomem.raddr[4]),
+  .Y(_1053_)
+);
   AND2X1_RVT _2682_ (
     .A1(_1052_),
     .A2(_1053_),
@@ -4087,16 +4087,16 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .A3(\fifo_instance.fifomem.raddr[3] ),
     .Y(_1054_)
   );
-  ISOLANDX1_RVT _2684_ (
-    .D(_1054_),
-    .ISO(_1051_),
-    .Q(\fifo_instance.rptr_empty.rbinnext[3] )
-  );
-  ISOLORX1_RVT _2685_ (
-    .D(_1049_),
-    .ISO(\fifo_instance.fifomem.raddr[2] ),
-    .Q(_1055_)
-  );
+  AND2X1_RVT _2684_ (
+  .A1(_1054_),
+  .A2(_1051_),
+  .Y(\fifo_instance.rptr_empty.rbinnext[3])
+);
+  OR2X1_RVT _2685_ (
+  .A1(_1049_),
+  .A2(\fifo_instance.fifomem.raddr[2]),
+  .Y(_1055_)
+);
   AND2X1_RVT _2686_ (
     .A1(_1050_),
     .A2(_1055_),
@@ -4107,11 +4107,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .A2(_1048_),
     .Y(_1056_)
   );
-  ISOLANDX1_RVT _2688_ (
-    .D(_1056_),
-    .ISO(_1049_),
-    .Q(\fifo_instance.rptr_empty.rbinnext[1] )
-  );
+  AND2X1_RVT _2688_ (
+  .A1(_1056_),
+  .A2(_1049_),
+  .Y(\fifo_instance.rptr_empty.rbinnext[1])
+);
   AO21X1_RVT _2689_ (
     .A1(rinc),
     .A2(_0001_),
@@ -4232,11 +4232,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1064_)
   );
-  ISOLORX1_RVT _2708_ (
-    .D(_1064_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1065_)
-  );
+  OR2X1_RVT _2708_ (
+  .A1(_1064_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1065_)
+);
   MUX41X1_RVT _2709_ (
     .A1(\fifo_instance.fifomem.mem[26][30] ),
     .A2(\fifo_instance.fifomem.mem[27][30] ),
@@ -4269,11 +4269,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1069_)
   );
-  ISOLORX1_RVT _2713_ (
-    .D(_1069_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1070_)
-  );
+  OR2X1_RVT _2713_ (
+  .A1(_1069_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1070_)
+);
   MUX41X1_RVT _2714_ (
     .A1(\fifo_instance.fifomem.mem[18][30] ),
     .A2(\fifo_instance.fifomem.mem[19][30] ),
@@ -4371,11 +4371,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1081_)
   );
-  ISOLORX1_RVT _2726_ (
-    .D(_1081_),
-    .ISO(_1032_),
-    .Q(_1082_)
-  );
+  OR2X1_RVT _2726_ (
+  .A1(_1081_),
+  .A2(_1032_),
+  .Y(_1082_)
+);
   MUX41X1_RVT _2727_ (
     .A1(\fifo_instance.fifomem.mem[24][29] ),
     .A2(\fifo_instance.fifomem.mem[25][29] ),
@@ -4423,11 +4423,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1087_)
   );
-  ISOLORX1_RVT _2733_ (
-    .D(_1087_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1088_)
-  );
+  OR2X1_RVT _2733_ (
+  .A1(_1087_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1088_)
+);
   MUX41X1_RVT _2734_ (
     .A1(\fifo_instance.fifomem.mem[26][28] ),
     .A2(\fifo_instance.fifomem.mem[27][28] ),
@@ -4476,11 +4476,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1094_)
   );
-  ISOLORX1_RVT _2740_ (
-    .D(_1094_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1095_)
-  );
+  OR2X1_RVT _2740_ (
+  .A1(_1094_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1095_)
+);
   MUX41X1_RVT _2741_ (
     .A1(\fifo_instance.fifomem.mem[18][28] ),
     .A2(\fifo_instance.fifomem.mem[19][28] ),
@@ -4550,11 +4550,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1103_)
   );
-  ISOLORX1_RVT _2750_ (
-    .D(_1103_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1104_)
-  );
+  OR2X1_RVT _2750_ (
+  .A1(_1103_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1104_)
+);
   MUX41X1_RVT _2751_ (
     .A1(\fifo_instance.fifomem.mem[26][27] ),
     .A2(\fifo_instance.fifomem.mem[27][27] ),
@@ -4603,11 +4603,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1110_)
   );
-  ISOLORX1_RVT _2757_ (
-    .D(_1110_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1111_)
-  );
+  OR2X1_RVT _2757_ (
+  .A1(_1110_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1111_)
+);
   MUX41X1_RVT _2758_ (
     .A1(\fifo_instance.fifomem.mem[18][27] ),
     .A2(\fifo_instance.fifomem.mem[19][27] ),
@@ -4677,11 +4677,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1119_)
   );
-  ISOLORX1_RVT _2767_ (
-    .D(_1119_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1120_)
-  );
+  OR2X1_RVT _2767_ (
+  .A1(_1119_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1120_)
+);
   MUX41X1_RVT _2768_ (
     .A1(\fifo_instance.fifomem.mem[26][26] ),
     .A2(\fifo_instance.fifomem.mem[27][26] ),
@@ -4730,11 +4730,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1126_)
   );
-  ISOLORX1_RVT _2774_ (
-    .D(_1126_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1127_)
-  );
+  OR2X1_RVT _2774_ (
+  .A1(_1126_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1127_)
+);
   MUX41X1_RVT _2775_ (
     .A1(\fifo_instance.fifomem.mem[18][26] ),
     .A2(\fifo_instance.fifomem.mem[19][26] ),
@@ -4804,11 +4804,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1135_)
   );
-  ISOLORX1_RVT _2784_ (
-    .D(_1135_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1136_)
-  );
+  OR2X1_RVT _2784_ (
+  .A1(_1135_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1136_)
+);
   MUX41X1_RVT _2785_ (
     .A1(\fifo_instance.fifomem.mem[26][25] ),
     .A2(\fifo_instance.fifomem.mem[27][25] ),
@@ -4857,11 +4857,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1142_)
   );
-  ISOLORX1_RVT _2791_ (
-    .D(_1142_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1143_)
-  );
+  OR2X1_RVT _2791_ (
+  .A1(_1142_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1143_)
+);
   MUX41X1_RVT _2792_ (
     .A1(\fifo_instance.fifomem.mem[18][25] ),
     .A2(\fifo_instance.fifomem.mem[19][25] ),
@@ -5171,11 +5171,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1177_)
   );
-  ISOLORX1_RVT _2829_ (
-    .D(_1177_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1178_)
-  );
+  OR2X1_RVT _2829_ (
+  .A1(_1177_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1178_)
+);
   MUX41X1_RVT _2830_ (
     .A1(\fifo_instance.fifomem.mem[26][22] ),
     .A2(\fifo_instance.fifomem.mem[27][22] ),
@@ -5208,11 +5208,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1182_)
   );
-  ISOLORX1_RVT _2834_ (
-    .D(_1182_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1183_)
-  );
+  OR2X1_RVT _2834_ (
+  .A1(_1182_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1183_)
+);
   MUX41X1_RVT _2835_ (
     .A1(\fifo_instance.fifomem.mem[18][22] ),
     .A2(\fifo_instance.fifomem.mem[19][22] ),
@@ -5250,11 +5250,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1187_)
   );
-  ISOLORX1_RVT _2840_ (
-    .D(_1187_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1188_)
-  );
+  OR2X1_RVT _2840_ (
+  .A1(_1187_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1188_)
+);
   MUX41X1_RVT _2841_ (
     .A1(\fifo_instance.fifomem.mem[26][21] ),
     .A2(\fifo_instance.fifomem.mem[27][21] ),
@@ -5303,11 +5303,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1194_)
   );
-  ISOLORX1_RVT _2847_ (
-    .D(_1194_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1195_)
-  );
+  OR2X1_RVT _2847_ (
+  .A1(_1194_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1195_)
+);
   MUX41X1_RVT _2848_ (
     .A1(\fifo_instance.fifomem.mem[18][21] ),
     .A2(\fifo_instance.fifomem.mem[19][21] ),
@@ -5431,11 +5431,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1210_)
   );
-  ISOLORX1_RVT _2864_ (
-    .D(_1210_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1211_)
-  );
+  OR2X1_RVT _2864_ (
+  .A1(_1210_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1211_)
+);
   MUX41X1_RVT _2865_ (
     .A1(\fifo_instance.fifomem.mem[26][20] ),
     .A2(\fifo_instance.fifomem.mem[27][20] ),
@@ -5498,11 +5498,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1218_)
   );
-  ISOLORX1_RVT _2873_ (
-    .D(_1218_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1219_)
-  );
+  OR2X1_RVT _2873_ (
+  .A1(_1218_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1219_)
+);
   MUX41X1_RVT _2874_ (
     .A1(\fifo_instance.fifomem.mem[26][19] ),
     .A2(\fifo_instance.fifomem.mem[27][19] ),
@@ -5551,11 +5551,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1225_)
   );
-  ISOLORX1_RVT _2880_ (
-    .D(_1225_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1226_)
-  );
+  OR2X1_RVT _2880_ (
+  .A1(_1225_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1226_)
+);
   MUX41X1_RVT _2881_ (
     .A1(\fifo_instance.fifomem.mem[18][19] ),
     .A2(\fifo_instance.fifomem.mem[19][19] ),
@@ -5625,11 +5625,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1234_)
   );
-  ISOLORX1_RVT _2890_ (
-    .D(_1234_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1235_)
-  );
+  OR2X1_RVT _2890_ (
+  .A1(_1234_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1235_)
+);
   MUX41X1_RVT _2891_ (
     .A1(\fifo_instance.fifomem.mem[26][18] ),
     .A2(\fifo_instance.fifomem.mem[27][18] ),
@@ -5678,11 +5678,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1241_)
   );
-  ISOLORX1_RVT _2897_ (
-    .D(_1241_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1242_)
-  );
+  OR2X1_RVT _2897_ (
+  .A1(_1241_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1242_)
+);
   MUX41X1_RVT _2898_ (
     .A1(\fifo_instance.fifomem.mem[18][18] ),
     .A2(\fifo_instance.fifomem.mem[19][18] ),
@@ -5752,11 +5752,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1250_)
   );
-  ISOLORX1_RVT _2907_ (
-    .D(_1250_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1251_)
-  );
+  OR2X1_RVT _2907_ (
+  .A1(_1250_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1251_)
+);
   MUX41X1_RVT _2908_ (
     .A1(\fifo_instance.fifomem.mem[26][17] ),
     .A2(\fifo_instance.fifomem.mem[27][17] ),
@@ -5805,11 +5805,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1257_)
   );
-  ISOLORX1_RVT _2914_ (
-    .D(_1257_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1258_)
-  );
+  OR2X1_RVT _2914_ (
+  .A1(_1257_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1258_)
+);
   MUX41X1_RVT _2915_ (
     .A1(\fifo_instance.fifomem.mem[18][17] ),
     .A2(\fifo_instance.fifomem.mem[19][17] ),
@@ -5939,11 +5939,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1273_)
   );
-  ISOLORX1_RVT _2931_ (
-    .D(_1273_),
-    .ISO(_1032_),
-    .Q(_1274_)
-  );
+  OR2X1_RVT _2931_ (
+  .A1(_1273_),
+  .A2(_1032_),
+  .Y(_1274_)
+);
   MUX41X1_RVT _2932_ (
     .A1(\fifo_instance.fifomem.mem[24][16] ),
     .A2(\fifo_instance.fifomem.mem[25][16] ),
@@ -6267,11 +6267,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1310_)
   );
-  ISOLORX1_RVT _2971_ (
-    .D(_1310_),
-    .ISO(_1032_),
-    .Q(_1311_)
-  );
+  OR2X1_RVT _2971_ (
+  .A1(_1310_),
+  .A2(_1032_),
+  .Y(_1311_)
+);
   MUX41X1_RVT _2972_ (
     .A1(\fifo_instance.fifomem.mem[8][13] ),
     .A2(\fifo_instance.fifomem.mem[9][13] ),
@@ -6405,11 +6405,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1325_)
   );
-  ISOLORX1_RVT _2988_ (
-    .D(_1325_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1326_)
-  );
+  OR2X1_RVT _2988_ (
+  .A1(_1325_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1326_)
+);
   MUX41X1_RVT _2989_ (
     .A1(\fifo_instance.fifomem.mem[26][11] ),
     .A2(\fifo_instance.fifomem.mem[27][11] ),
@@ -6458,11 +6458,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1332_)
   );
-  ISOLORX1_RVT _2995_ (
-    .D(_1332_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1333_)
-  );
+  OR2X1_RVT _2995_ (
+  .A1(_1332_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1333_)
+);
   MUX41X1_RVT _2996_ (
     .A1(\fifo_instance.fifomem.mem[18][11] ),
     .A2(\fifo_instance.fifomem.mem[19][11] ),
@@ -6586,11 +6586,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1348_)
   );
-  ISOLORX1_RVT _3012_ (
-    .D(_1348_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1349_)
-  );
+  OR2X1_RVT _3012_ (
+  .A1(_1348_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1349_)
+);
   MUX41X1_RVT _3013_ (
     .A1(\fifo_instance.fifomem.mem[26][10] ),
     .A2(\fifo_instance.fifomem.mem[27][10] ),
@@ -6683,11 +6683,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1360_)
   );
-  ISOLORX1_RVT _3025_ (
-    .D(_1360_),
-    .ISO(_1032_),
-    .Q(_1361_)
-  );
+  OR2X1_RVT _3025_ (
+  .A1(_1360_),
+  .A2(_1032_),
+  .Y(_1361_)
+);
   MUX41X1_RVT _3026_ (
     .A1(\fifo_instance.fifomem.mem[8][9] ),
     .A2(\fifo_instance.fifomem.mem[9][9] ),
@@ -6712,11 +6712,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1364_)
   );
-  ISOLORX1_RVT _3029_ (
-    .D(_1364_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1365_)
-  );
+  OR2X1_RVT _3029_ (
+  .A1(_1364_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1365_)
+);
   MUX41X1_RVT _3030_ (
     .A1(\fifo_instance.fifomem.mem[18][9] ),
     .A2(\fifo_instance.fifomem.mem[19][9] ),
@@ -6785,11 +6785,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1373_)
   );
-  ISOLORX1_RVT _3039_ (
-    .D(_1373_),
-    .ISO(_1032_),
-    .Q(_1374_)
-  );
+  OR2X1_RVT _3039_ (
+  .A1(_1373_),
+  .A2(_1032_),
+  .Y(_1374_)
+);
   MUX41X1_RVT _3040_ (
     .A1(\fifo_instance.fifomem.mem[24][8] ),
     .A2(\fifo_instance.fifomem.mem[25][8] ),
@@ -6842,11 +6842,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S0(\fifo_instance.fifomem.raddr[2] ),
     .Y(_1381_)
   );
-  ISOLANDX1_RVT _3047_ (
-    .D(\fifo_instance.fifomem.mem[19][8] ),
-    .ISO(\fifo_instance.fifomem.raddr[2] ),
-    .Q(_1382_)
-  );
+  AND2X1_RVT _3047_ (
+  .A1(\fifo_instance.fifomem.mem[19][8]),
+  .A2(\fifo_instance.fifomem.raddr[2]),
+  .Y(_1382_)
+);
   AO21X1_RVT _3048_ (
     .A1(\fifo_instance.fifomem.raddr[2] ),
     .A2(\fifo_instance.fifomem.mem[23][8] ),
@@ -7127,11 +7127,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S0(\fifo_instance.fifomem.raddr[2] ),
     .Y(_1413_)
   );
-  ISOLORX1_RVT _3082_ (
-    .D(_1413_),
-    .ISO(_1033_),
-    .Q(_1414_)
-  );
+  OR2X1_RVT _3082_ (
+  .A1(_1413_),
+  .A2(_1033_),
+  .Y(_1414_)
+);
   OA21X1_RVT _3083_ (
     .A1(\fifo_instance.fifomem.raddr[0] ),
     .A2(_1412_),
@@ -7299,11 +7299,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1435_)
   );
-  ISOLORX1_RVT _3105_ (
-    .D(_1435_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1436_)
-  );
+  OR2X1_RVT _3105_ (
+  .A1(_1435_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1436_)
+);
   MUX41X1_RVT _3106_ (
     .A1(\fifo_instance.fifomem.mem[26][4] ),
     .A2(\fifo_instance.fifomem.mem[27][4] ),
@@ -7335,11 +7335,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1440_)
   );
-  ISOLORX1_RVT _3110_ (
-    .D(_1440_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1441_)
-  );
+  OR2X1_RVT _3110_ (
+  .A1(_1440_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1441_)
+);
   MUX41X1_RVT _3111_ (
     .A1(\fifo_instance.fifomem.mem[18][4] ),
     .A2(\fifo_instance.fifomem.mem[19][4] ),
@@ -7432,11 +7432,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1452_)
   );
-  ISOLORX1_RVT _3123_ (
-    .D(_1452_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1453_)
-  );
+  OR2X1_RVT _3123_ (
+  .A1(_1452_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1453_)
+);
   MUX41X1_RVT _3124_ (
     .A1(\fifo_instance.fifomem.mem[26][3] ),
     .A2(\fifo_instance.fifomem.mem[27][3] ),
@@ -7546,11 +7546,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1466_)
   );
-  ISOLORX1_RVT _3138_ (
-    .D(_1466_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1467_)
-  );
+  OR2X1_RVT _3138_ (
+  .A1(_1466_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1467_)
+);
   MUX41X1_RVT _3139_ (
     .A1(\fifo_instance.fifomem.mem[26][2] ),
     .A2(\fifo_instance.fifomem.mem[27][2] ),
@@ -7582,11 +7582,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1471_)
   );
-  ISOLORX1_RVT _3143_ (
-    .D(_1471_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1472_)
-  );
+  OR2X1_RVT _3143_ (
+  .A1(_1471_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1472_)
+);
   MUX41X1_RVT _3144_ (
     .A1(\fifo_instance.fifomem.mem[18][2] ),
     .A2(\fifo_instance.fifomem.mem[19][2] ),
@@ -7679,11 +7679,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1483_)
   );
-  ISOLORX1_RVT _3156_ (
-    .D(_1483_),
-    .ISO(\fifo_instance.fifomem.raddr[1] ),
-    .Q(_1484_)
-  );
+  OR2X1_RVT _3156_ (
+  .A1(_1483_),
+  .A2(\fifo_instance.fifomem.raddr[1]),
+  .Y(_1484_)
+);
   MUX41X1_RVT _3157_ (
     .A1(\fifo_instance.fifomem.mem[26][1] ),
     .A2(\fifo_instance.fifomem.mem[27][1] ),
@@ -10947,11 +10947,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S0(_1041_),
     .Y(_0196_)
   );
-  ISOLANDX1_RVT _3698_ (
-    .D(\fifo_instance.fifomem.waddr[4] ),
-    .ISO(\fifo_instance.fifomem.waddr[3] ),
-    .Q(_1528_)
-  );
+  AND2X1_RVT _3698_ (
+  .A1(\fifo_instance.fifomem.waddr[4]),
+  .A2(\fifo_instance.fifomem.waddr[3]),
+  .Y(_1528_)
+);
   AND2X1_RVT _3699_ (
     .A1(_1028_),
     .A2(_1528_),
@@ -14220,11 +14220,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S1(\fifo_instance.fifomem.raddr[0] ),
     .Y(_1547_)
   );
-  ISOLORX1_RVT _4245_ (
-    .D(_1547_),
-    .ISO(_1032_),
-    .Q(_1548_)
-  );
+  OR2X1_RVT _4245_ (
+  .A1(_1547_),
+  .A2(_1032_),
+  .Y(_1548_)
+);
   MUX41X1_RVT _4246_ (
     .A1(\fifo_instance.fifomem.mem[24][31] ),
     .A2(\fifo_instance.fifomem.mem[25][31] ),
@@ -14277,11 +14277,11 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .S0(\fifo_instance.fifomem.raddr[2] ),
     .Y(_1555_)
   );
-  ISOLANDX1_RVT _4253_ (
-    .D(\fifo_instance.fifomem.mem[19][31] ),
-    .ISO(\fifo_instance.fifomem.raddr[2] ),
-    .Q(_1556_)
-  );
+  AND2X1_RVT _4253_ (
+  .A1(\fifo_instance.fifomem.mem[19][31]),
+  .A2(\fifo_instance.fifomem.raddr[2]),
+  .Y(_1556_)
+);
   AO21X1_RVT _4254_ (
     .A1(\fifo_instance.fifomem.raddr[2] ),
     .A2(\fifo_instance.fifomem.mem[23][31] ),
@@ -20935,8 +20935,52 @@ module fifo(rdata_0 , rdata_1 , rdata_2 , rdata_3 , rdata_4 , rdata_5 , rdata_6 
     .Q(\fifo_instance.fifomem.mem[1][31] ),
     .QN(_2641_)
   );
-  assign { \fifo_instance.rptr_empty.rbin[4] , \fifo_instance.rptr_empty.rbin[3] , \fifo_instance.rptr_empty.rbin[2] , \fifo_instance.rptr_empty.rbin[1] , \fifo_instance.rptr_empty.rbin[0]  } = { \fifo_instance.fifomem.raddr[4] , \fifo_instance.fifomem.raddr[3] , \fifo_instance.fifomem.raddr[2] , \fifo_instance.fifomem.raddr[1] , \fifo_instance.fifomem.raddr[0]  };
-  assign \fifo_instance.rptr_empty.rgraynext[5]  = \fifo_instance.rptr_empty.rbinnext[5] ;
-  assign { \fifo_instance.wptr_full.wbin[4] , \fifo_instance.wptr_full.wbin[3] , \fifo_instance.wptr_full.wbin[2] , \fifo_instance.wptr_full.wbin[1] , \fifo_instance.wptr_full.wbin[0]  } = { \fifo_instance.fifomem.waddr[4] , \fifo_instance.fifomem.waddr[3] , \fifo_instance.fifomem.waddr[2] , \fifo_instance.fifomem.waddr[1] , \fifo_instance.fifomem.waddr[0]  };
-  assign \fifo_instance.wptr_full.wgraynext[5]  = \fifo_instance.wptr_full.wbinnext[5] ;
+  IBUFFX2_RVT _assign_buf_0_ (
+    .A(\fifo_instance.fifomem.raddr[4]),
+    .Y(\fifo_instance.rptr_empty.rbin[4])
+  );
+  IBUFFX2_RVT _assign_buf_1_ (
+    .A(\fifo_instance.fifomem.raddr[3]),
+    .Y(\fifo_instance.rptr_empty.rbin[3])
+  );
+  IBUFFX2_RVT _assign_buf_2_ (
+    .A(\fifo_instance.fifomem.raddr[2]),
+    .Y(\fifo_instance.rptr_empty.rbin[2])
+  );
+  IBUFFX2_RVT _assign_buf_3_ (
+    .A(\fifo_instance.fifomem.raddr[1]),
+    .Y(\fifo_instance.rptr_empty.rbin[1])
+  );
+  IBUFFX2_RVT _assign_buf_4_ (
+    .A(\fifo_instance.fifomem.raddr[0]),
+    .Y(\fifo_instance.rptr_empty.rbin[0])
+  );
+  IBUFFX2_RVT _assign_buf_5_ (
+    .A(\fifo_instance.rptr_empty.rbinnext[5]),
+    .Y(\fifo_instance.rptr_empty.rgraynext[5])
+  );
+  IBUFFX2_RVT _assign_buf_6_ (
+    .A(\fifo_instance.fifomem.waddr[4]),
+    .Y(\fifo_instance.wptr_full.wbin[4])
+  );
+  IBUFFX2_RVT _assign_buf_7_ (
+    .A(\fifo_instance.fifomem.waddr[3]),
+    .Y(\fifo_instance.wptr_full.wbin[3])
+  );
+  IBUFFX2_RVT _assign_buf_8_ (
+    .A(\fifo_instance.fifomem.waddr[2]),
+    .Y(\fifo_instance.wptr_full.wbin[2])
+  );
+  IBUFFX2_RVT _assign_buf_9_ (
+    .A(\fifo_instance.fifomem.waddr[1]),
+    .Y(\fifo_instance.wptr_full.wbin[1])
+  );
+  IBUFFX2_RVT _assign_buf_10_ (
+    .A(\fifo_instance.fifomem.waddr[0]),
+    .Y(\fifo_instance.wptr_full.wbin[0])
+  );
+  IBUFFX2_RVT _assign_buf_11_ (
+    .A(\fifo_instance.wptr_full.wbinnext[5]),
+    .Y(\fifo_instance.wptr_full.wgraynext[5])
+  );
 endmodule
