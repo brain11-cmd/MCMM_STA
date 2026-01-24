@@ -8,7 +8,9 @@ param(
     [string]$YosysPath = "D:\oss-cad-suite\bin\yosys.exe",
     [string]$LibPath = "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib",
     [string]$RtlDir = "D:\bishe_database\benchmark\rtl_src",
-    [string]$OutputDir = "D:\bishe_database\benchmark\netlists"
+    [string]$OutputDir = "D:\bishe_database\benchmark\netlists",
+    [switch]$PrepareOpenTimer,
+    [string]$StubFile = "$(Join-Path $PSScriptRoot '..\\rtl_src\\common\\ip_stubs.v')"
 )
 
 # 设计配置：设计名 -> 顶层模块名
@@ -76,12 +78,17 @@ foreach ($design in $designConfig.Keys) {
     # 生成 Yosys 脚本
     $yosysScript = Join-Path $designOutputDir "synth.ys"
     $netlistFile = Join-Path $designOutputDir "${design}_netlist.v"
+    $stubRead = ""
+    if (Test-Path $StubFile) {
+        $stubRead = "read_verilog -sv `"$StubFile`""
+    }
     
     # 简化的 Yosys 综合脚本（不需要SDC）
     $scriptContent = @"
 # Yosys synthesis for $design -> SAED32
 
 # 读取所有 Verilog 文件
+$stubRead
 $(($vFiles | ForEach-Object { "read_verilog -sv `"$($_.FullName)`"" }) -join "`n")
 
 # 设置顶层模块
@@ -132,12 +139,19 @@ stat -liberty "$LibPath"
         
         if ($proc.ExitCode -eq 0 -and (Test-Path $netlistFile)) {
             # 修复 escaped identifiers (OpenTimer 兼容性)
-            $fixScript = Join-Path $PSScriptRoot "fix_ports.py"
-            if (Test-Path $fixScript) {
+            $fixPortsScript = Join-Path $PSScriptRoot "fix_ports.py"
+            if (Test-Path $fixPortsScript) {
                 $fixedFile = Join-Path $designOutputDir "${design}_netlist_fixed.v"
-                python $fixScript $netlistFile $fixedFile | Out-Null
+                python $fixPortsScript $netlistFile $fixedFile | Out-Null
                 if (Test-Path $fixedFile) {
                     Move-Item -Path $fixedFile -Destination $netlistFile -Force
+                }
+            }
+
+            if ($PrepareOpenTimer) {
+                $fixGateScript = Join-Path $PSScriptRoot "fix_gate_netlist.py"
+                if (Test-Path $fixGateScript) {
+                    python $fixGateScript $netlistFile --remove-print --fix-isolation | Out-Null
                 }
             }
             
