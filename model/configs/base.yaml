@@ -1,0 +1,71 @@
+# ============================================================================
+# Physics-Informed Multi-Anchor GNN STA — Base Configuration
+# ============================================================================
+
+seed: 42
+data_root: "../benchmark/test_output"
+checkpoint_dir: "checkpoints"
+num_workers: 0
+
+benchmarks:
+  - spi
+  - gcd
+  - uart
+  - chameleon
+  - fifo
+  - dynamic_node
+  - aes
+  - jpeg
+  - mock-alu
+
+anchors:
+  - ff1p16vn40c
+  - tt0p85v25c
+  - ss0p7v25c
+
+# ---- Model ----
+model:
+  hidden_dim: 128
+  gnn_layers: 3
+  tau_sage: 1.0
+  edge_mlp_hidden: 256
+  edge_mlp_layers: 3
+  process_embed_dim: 8
+  beta: 1.0
+  scale_clamp: 3.0
+  tau_sta: 0.07
+  dropout: 0.0
+  residual_alpha: 0.5
+
+  # FiLM conditioning (corner condition → modulate GNN layers + EdgeHead output)
+  #   true:  γ/β from z_cond adjusts intermediate features (stronger than concat)
+  #   false: z_cond only via concat (simpler, current checkpoint)
+  use_film: false
+  film_hidden: 128          # hidden dim of FiLM generator MLP
+  film_gamma_scale: 0.5     # |gamma| bounded by gamma_scale * tanh (range [-0.5, 0.5])
+
+# ---- Training ----
+training:
+  epochs: 200
+  lr: 3.0e-4
+  weight_decay: 1.0e-5
+  batch_size: 1
+  warmup_epochs: 5
+  scheduler: cosine        # cosine | step
+  patience: 30
+  grad_clip: 5.0
+
+# ---- Loss ----
+loss:
+  huber_delta: 1.0
+  lambda_edge: 0.3
+  lambda_kl: 0.01
+  lambda_ent: 0.001
+  lambda_scale: 0.0001
+
+  # Negative delay handling (bounded STA)
+  neg_delay_mode: bounded  # bounded | clamp0
+  d_floor: 0.1             # STA propagation clamp: d_sta = clamp(d_hat, min=-d_floor)
+  asinh_scale: 1.0         # edge loss: asinh(x / asinh_scale)
+  lambda_neg: 1.0e-4       # penalty for d_hat < -d_floor
+  lambda_at: 0.1           # arrival time supervision on all non-source reachable nodes
