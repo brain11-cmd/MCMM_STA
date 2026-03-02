@@ -69,9 +69,14 @@ class STALoss:
         eps = 1e-8
         losses = {}
 
-        # ---- 1. Slack loss (Huber) ----
+        # ---- 1. Slack loss (asinh-Huber) ----
+        # Use the same robust transform as edge/arrival losses to compress
+        # large-value ranges without amplifying near-zero slack samples.
         if slack_hat.numel() > 0:
-            L_slack = F.huber_loss(slack_hat, slack_true, delta=self.huber_delta)
+            s = self.asinh_scale
+            phi_sh = torch.asinh(slack_hat / s)
+            phi_st = torch.asinh(slack_true / s)
+            L_slack = F.huber_loss(phi_sh, phi_st, delta=self.huber_delta)
         else:
             L_slack = torch.tensor(0.0, device=device)
         losses["L_slack"] = L_slack

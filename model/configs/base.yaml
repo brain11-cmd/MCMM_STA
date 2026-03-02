@@ -40,7 +40,7 @@ model:
   # FiLM conditioning (corner condition → modulate GNN layers + EdgeHead output)
   #   true:  γ/β from z_cond adjusts intermediate features (stronger than concat)
   #   false: z_cond only via concat (simpler, current checkpoint)
-  use_film: false
+  use_film: true
   film_hidden: 128          # hidden dim of FiLM generator MLP
   film_gamma_scale: 0.5     # |gamma| bounded by gamma_scale * tanh (range [-0.5, 0.5])
 
@@ -52,8 +52,9 @@ training:
   batch_size: 1
   warmup_epochs: 5
   scheduler: cosine        # cosine | step
-  patience: 30
+  patience: 50
   grad_clip: 5.0
+  grad_accum_steps: 4     # accumulate gradients over N samples before optimizer step
 
 # ---- Loss ----
 loss:
@@ -68,4 +69,4 @@ loss:
   d_floor: 0.1             # STA propagation clamp: d_sta = clamp(d_hat, min=-d_floor)
   asinh_scale: 1.0         # edge loss: asinh(x / asinh_scale)
   lambda_neg: 1.0e-4       # penalty for d_hat < -d_floor
-  lambda_at: 0.1           # arrival time supervision on all non-source reachable nodes
+  lambda_at: 0.3           # arrival time supervision on all non-source reachable nodes (increased for large-graph error accumulation)

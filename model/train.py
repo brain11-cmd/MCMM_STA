@@ -76,6 +76,7 @@ def _forward_sample(
     sample: STASample,
     normalizer: FeatureNormalizer,
     device: str,
+    tf_ratio: float = 0.0,
 ) -> ModelOutput:
     pin_static = sample.pin_static.to(device)
     if normalizer.is_ready:
@@ -86,6 +87,11 @@ def _forward_sample(
     edge_scalars_normed = None
     if normalizer.is_ready and "edge_scalars" in normalizer._stats:
         edge_scalars_normed = normalizer.normalize("edge_scalars", edge_scalars)
+
+    # ---- Teacher forcing: pass ground-truth arrival times when training ----
+    at_true_dev = None
+    if tf_ratio > 0 and hasattr(sample, "at_true") and sample.at_true is not None:
+        at_true_dev = sample.at_true.to(device)
 
     # ---- Force index tensors to long (prevents embedding / scatter errors) ----
     return model(
@@ -116,6 +122,8 @@ def _forward_sample(
         edge_cap_dst=sample.edge_cap_dst.to(device),
         edge_scalars_normed=edge_scalars_normed,
         sta_edge_keep=sample.sta_edge_keep.to(device),
+        at_true=at_true_dev,
+        tf_ratio=tf_ratio,
     )
 
 
@@ -188,18 +196,21 @@ def assert_slack_consistency(
 def train_one_epoch(
     model, loader, criterion, optimizer, normalizer,
     device, grad_clip, epoch, total_epochs,
+    grad_accum_steps: int = 1,
 ) -> Dict[str, float]:
     model.train()
     total_losses = {}
     count = 0
-    # Running slack MAE for metric fallback when no val set
     running_slack_mae = 0.0
     slack_count = 0
 
+    # Teacher forcing ratio: linear anneal 0.5 → 0 over first 60% of training
+    tf_ratio = max(0.5 * (1.0 - epoch / max(total_epochs * 0.6, 1)), 0.0)
+
+    optimizer.zero_grad()
     pbar = tqdm(loader, desc=f"Epoch {epoch} [train]", leave=False)
-    for sample in pbar:
-        optimizer.zero_grad()
-        out = _forward_sample(model, sample, normalizer, device)
+    for step_i, sample in enumerate(pbar):
+        out = _forward_sample(model, sample, normalizer, device, tf_ratio=tf_ratio)
 
         losses = criterion(
             slack_hat=out.slack_hat,
@@ -216,22 +227,24 @@ def train_one_epoch(
             epoch=epoch, total_epochs=total_epochs,
         )
 
-        loss = losses["total"]
+        loss = losses["total"] / grad_accum_steps
         if torch.isnan(loss) or torch.isinf(loss):
             print(f"  [WARN] NaN/Inf loss at epoch {epoch}, skipping")
             continue
 
         loss.backward()
-        if grad_clip > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-        optimizer.step()
+
+        if (step_i + 1) % grad_accum_steps == 0 or (step_i + 1) == len(loader):
+            if grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            optimizer.step()
+            optimizer.zero_grad()
 
         for k, v in losses.items():
             if isinstance(v, torch.Tensor):
                 total_losses[k] = total_losses.get(k, 0.0) + v.item()
         count += 1
 
-        # Track slack MAE (lightweight, no extra backward graph)
         if out.slack_hat.numel() > 0:
             with torch.no_grad():
                 running_slack_mae += (
@@ -239,7 +252,7 @@ def train_one_epoch(
                 ).abs().mean().item()
                 slack_count += 1
 
-        pbar.set_postfix(loss=f"{loss.item():.4f}")
+        pbar.set_postfix(loss=f"{loss.item() * grad_accum_steps:.4f}", tf=f"{tf_ratio:.2f}")
 
     if count > 0:
         for k in total_losses:
@@ -487,6 +500,7 @@ def main():
     patience = train_cfg.get("patience", 30)
     patience_counter = 0
     grad_clip = train_cfg.get("grad_clip", 5.0)
+    grad_accum_steps = train_cfg.get("grad_accum_steps", 1)
 
     print(f"\n{'='*70}")
     print(f"Starting training: {epochs} epochs, lr={train_cfg.get('lr', 3e-4)}")
@@ -498,6 +512,7 @@ def main():
         train_losses = train_one_epoch(
             model, train_loader, criterion, optimizer,
             normalizer, device, grad_clip, epoch, epochs,
+            grad_accum_steps=grad_accum_steps,
         )
 
         val_metrics = {}

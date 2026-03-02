@@ -160,6 +160,8 @@ class MultiAnchorSTAModel(nn.Module):
         edge_cap_dst: torch.Tensor,
         edge_scalars_normed: Optional[torch.Tensor] = None,
         sta_edge_keep: Optional[torch.Tensor] = None,  # [E] bool — cycle cuts
+        at_true: Optional[torch.Tensor] = None,         # [N, 2] for teacher forcing
+        tf_ratio: float = 0.0,                           # teacher forcing blend (0=off)
     ) -> ModelOutput:
 
         N = pin_static.shape[0]
@@ -254,6 +256,7 @@ class MultiAnchorSTAModel(nn.Module):
             d_sta, sta_mask, edge_src, edge_dst,
             input_arrival, endpoint_ids, rat_true,
             node_level, edge_level, max_level,
+            at_true=at_true, tf_ratio=tf_ratio,
         )
 
         return ModelOutput(
