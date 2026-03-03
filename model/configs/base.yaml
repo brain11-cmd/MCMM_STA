@@ -52,7 +52,7 @@ training:
   batch_size: 1
   warmup_epochs: 5
   scheduler: cosine        # cosine | step
-  patience: 50
+  patience: 0
   grad_clip: 5.0
   grad_accum_steps: 4     # accumulate gradients over N samples before optimizer step
 
