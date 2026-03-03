@@ -92,3 +92,25 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "    git remote set-url origin https://TOKEN@github.com/brain11-cmd/MCMM_STA.git"
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

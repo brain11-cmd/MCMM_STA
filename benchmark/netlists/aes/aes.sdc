@@ -1,4 +1,4 @@
-﻿# SDC for aes design
+# SDC for aes design
 # Clock period: 0.1ns (10000 MHz) - Optimized
 # Original: 10ns (100MHz) with 9.9ns slack
 # Optimized: 0.1ns (10GHz) with 0.004ns slack

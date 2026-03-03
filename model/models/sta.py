@@ -23,6 +23,7 @@ STA propagation:
     AT[v, Fall] = smoothmax over e=(u->v):  { AT[u,R]+d[RF],  AT[u,F]+d[FF] }
 """
 
+import math
 from typing import Tuple, Dict, List
 from collections import defaultdict
 
@@ -198,18 +199,20 @@ class LevelwiseSTA(nn.Module):
         use_tf = (tf_ratio > 0 and at_true is not None
                   and self.training and self.tf_interval > 0)
         if use_tf:
-            # stopgrad teacher target
             gt_r = at_true[:, 0].detach()
             gt_f = at_true[:, 1].detach()
-            gt_valid = at_true.abs().sum(dim=1) > 1e-6  # non-source, non-zero
+            gt_valid = at_true.abs().sum(dim=1) > 1e-6
+
+            # Depth-weighted tf: shallow nodes get little forcing, deep nodes get full.
+            # L0 = 70th percentile of max_level, tau scales with graph depth.
+            L0 = max_level * 0.7
+            tf_tau = max(max_level * 0.05, 5.0)
 
         # --- Level grouping (cached per unique graph) ---
+        # Key = (N, E, max_level): unique across 9 benchmarks (different node/edge counts).
+        # Avoids GPU sync (.item()/.sum()) while being collision-free for this dataset.
         E = edge_level.shape[0]
-        # Use lightweight graph fingerprints to avoid accidental cache reuse
-        # when different graphs share the same (N, E, max_level).
-        dst_sum = int(edge_dst.long().sum().item())
-        lvl_sum = int(edge_level.long().sum().item())
-        _key = (N, E, max_level, dst_sum, lvl_sum)
+        _key = (N, E, max_level)
         if _key in self._lvl_cache:
             order, counts_cpu, offsets_cpu = self._lvl_cache[_key]
         else:
@@ -259,32 +262,31 @@ class LevelwiseSTA(nn.Module):
                 )
                 at_f = torch.where(vmask, upd_f, at_f)
 
-            # ---- Teacher forcing: blend with ground truth every tf_interval levels ----
+            # ---- Teacher forcing: depth-weighted blend every tf_interval levels ----
             if use_tf and lvl % self.tf_interval == 0:
-                # Only blend on physically consistent nodes:
-                #  - nodes in current level
-                #  - ground-truth AT available
-                #  - STA currently reachable (prevents injecting into disconnected nodes)
-                #  - this level has at least one valid candidate edge in STA mask
-                reachable_now = (at_r > (NEG_INF + 1)) | (at_f > (NEG_INF + 1))
-                has_level_cand = torch.zeros(N, dtype=torch.bool, device=at_r.device)
-                if rise_valid.any():
-                    has_level_cand[rise_idx[rise_valid]] = True
-                if fall_valid.any():
-                    has_level_cand[fall_idx[fall_valid]] = True
+                tf_depth = 1.0 / (1.0 + math.exp(-(lvl - L0) / tf_tau))
+                tf_eff = tf_ratio * tf_depth
 
-                blend = vmask & gt_valid & reachable_now & has_level_cand
-                if blend.any():
-                    at_r = torch.where(
-                        blend,
-                        (1.0 - tf_ratio) * at_r + tf_ratio * gt_r,
-                        at_r,
-                    )
-                    at_f = torch.where(
-                        blend,
-                        (1.0 - tf_ratio) * at_f + tf_ratio * gt_f,
-                        at_f,
-                    )
+                if tf_eff >= 1e-4:
+                    reachable_now = (at_r > (NEG_INF + 1)) | (at_f > (NEG_INF + 1))
+                    has_level_cand = torch.zeros(N, dtype=torch.bool, device=at_r.device)
+                    if rise_valid.any():
+                        has_level_cand[rise_idx[rise_valid]] = True
+                    if fall_valid.any():
+                        has_level_cand[fall_idx[fall_valid]] = True
+
+                    blend = vmask & gt_valid & reachable_now & has_level_cand
+                    if blend.any():
+                        at_r = torch.where(
+                            blend,
+                            (1.0 - tf_eff) * at_r + tf_eff * gt_r,
+                            at_r,
+                        )
+                        at_f = torch.where(
+                            blend,
+                            (1.0 - tf_eff) * at_f + tf_eff * gt_f,
+                            at_f,
+                        )
 
         # Stack into [N, 2]
         at_all = torch.stack([at_r, at_f], dim=1)

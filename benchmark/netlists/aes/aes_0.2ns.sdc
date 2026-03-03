@@ -9,3 +9,25 @@ set_input_transition 0.1 [all_inputs]
 set_output_delay 0 -clock clk [all_outputs]
 set_load 0.01 [all_outputs]
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -204,8 +204,20 @@ def train_one_epoch(
     running_slack_mae = 0.0
     slack_count = 0
 
-    # Teacher forcing ratio: linear anneal 0.5 → 0 over first 60% of training
-    tf_ratio = max(0.5 * (1.0 - epoch / max(total_epochs * 0.6, 1)), 0.0)
+    # Teacher forcing ratio: phased schedule
+    #   0–15% epochs:  tf = 0.5  (bootstrap)
+    #  15–40% epochs:  tf = 0.5 → 0.1  (gradual release)
+    #  40–50% epochs:  tf = 0.1 → 0    (final release)
+    #  50–100% epochs: tf = 0           (pure self-supervised, at least half of training)
+    progress = epoch / max(total_epochs, 1)
+    if progress < 0.15:
+        tf_ratio = 0.5
+    elif progress < 0.40:
+        tf_ratio = 0.5 - 0.4 * (progress - 0.15) / 0.25
+    elif progress < 0.50:
+        tf_ratio = 0.1 * (1.0 - (progress - 0.40) / 0.10)
+    else:
+        tf_ratio = 0.0
 
     optimizer.zero_grad()
     pbar = tqdm(loader, desc=f"Epoch {epoch} [train]", leave=False)
@@ -356,7 +368,7 @@ def main():
     ckpt_base = Path(cfg.get("checkpoint_dir", "checkpoints"))
     bm_tag = "_".join(benchmarks)
     film_tag = "film" if use_film else "no_film"
-    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v2"
+    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v3"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Data root:   {data_root}")

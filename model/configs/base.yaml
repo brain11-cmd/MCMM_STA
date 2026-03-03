@@ -40,7 +40,7 @@ model:
   # FiLM conditioning (corner condition → modulate GNN layers + EdgeHead output)
   #   true:  γ/β from z_cond adjusts intermediate features (stronger than concat)
   #   false: z_cond only via concat (simpler, current checkpoint)
-  use_film: true
+  use_film: false
   film_hidden: 128          # hidden dim of FiLM generator MLP
   film_gamma_scale: 0.5     # |gamma| bounded by gamma_scale * tanh (range [-0.5, 0.5])
 

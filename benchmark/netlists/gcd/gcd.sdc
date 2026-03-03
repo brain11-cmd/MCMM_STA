@@ -1,4 +1,4 @@
-﻿# SDC for gcd design
+# SDC for gcd design
 # Clock period: 1ns (Optimized from 10ns, 1000 MHz)
 create_clock -period 1 -name clk [get_ports clk]
 

@@ -1,4 +1,4 @@
-﻿# SDC for spi design
+# SDC for spi design
 # Clock period: 0.15ns (Optimized from 10ns, 6666.67 MHz)
 create_clock -period 0.15 -name clk [get_ports clk]
 

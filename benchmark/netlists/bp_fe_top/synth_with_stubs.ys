@@ -1,0 +1,27 @@
+# Yosys synthesis for bp_fe_top -> SAED32 (with IP stubs)
+
+# Read IP stubs first
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\common\ip_stubs.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\bp_fe_top\pickled.v"
+
+hierarchy -check -top bp_fe_top
+
+proc
+flatten
+opt -full
+
+memory -nomap
+memory_dff
+memory_map
+
+techmap
+dfflibmap -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+abc -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+
+opt_clean -purge
+clean
+
+splitnets -ports
+
+write_verilog -noattr -noexpr -nohex "D:\bishe_database\benchmark\netlists\bp_fe_top\bp_fe_top_netlist.v"
+stat -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"

@@ -59,3 +59,17 @@ opentimer/OpenTimer/build/
 opentimer/OpenTimer/bin/
 opentimer/OpenTimer/.git/
 opentimer/OpenTimer/.backup_*/
+
+# Large data files (not suitable for git)
+benchmark/test_output/
+benchmark/results/
+model/checkpoints/
+model/results_*.json
+
+# Large netlist files (>100MB, exceeds GitHub limit)
+benchmark/netlists/ariane/ariane_netlist.v
+benchmark/netlists/ariane133/ariane133_netlist.v
+benchmark/netlists/chameleon/chameleon_netlist.v
+benchmark/netlists/mock-alu/mock-alu_netlist.v
+benchmark/netlists/tinyRocket/tinyRocket_netlist.v
+benchmark/netlists/riscv32i/riscv32i_netlist.v

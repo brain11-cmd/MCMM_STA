@@ -1,0 +1,29 @@
+# Yosys synthesis for mock-alu -> SAED32 (with IP stubs)
+
+# Read IP stubs first
+read_verilog -sv "D:\bishe_database\benchmark\scripts\ip_stubs.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\mock-alu\BarrelShifter.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\mock-alu\MockAlu.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\mock-alu\mult_hancarlson.v"
+
+hierarchy -check -top MockAlu
+
+proc
+flatten
+opt -full
+
+memory -nomap
+memory_dff
+memory_map
+
+techmap
+dfflibmap -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+abc -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+
+opt_clean -purge
+clean
+
+splitnets -ports
+
+write_verilog -noattr -noexpr -nohex "D:\bishe_database\benchmark\netlists\mock-alu\mock-alu_netlist.v"
+stat -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"

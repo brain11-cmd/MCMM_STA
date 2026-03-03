@@ -1,0 +1,88 @@
+# Yosys synthesis for chameleon -> SAED32 (REAL RTL, no stubs)
+
+# Read all RTL files
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\acc\AHB_SPM.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\AHB_sys_0\AHBlite_bus0.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\AHB_sys_0\AHBlite_db_reg.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\AHB_sys_0\AHBlite_GPIO.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\AHB_sys_0\AHBlite_sys_0.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\AHB_sys_0\APB_sys_0\AHB_2_APB.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\AHB_sys_0\APB_sys_0\APB_bus0.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\AHB_sys_0\APB_sys_0\APB_PWM32.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\AHB_sys_0\APB_sys_0\APB_sys_0.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\AHB_sys_0\APB_sys_0\APB_TIMER32.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\AHB_sys_0\APB_sys_0\APB_WDT32.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_alu.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_branch_predict.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_compressed_decoder.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_controller.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_core.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_counter.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_cs_registers.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_csr.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_decoder.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_dummy_instr.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_ex_block.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_fetch_fifo.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_icache.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_id_stage.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_if_stage.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_load_store_unit.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_multdiv_fast.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_multdiv_slow.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_pkg.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_pmp.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_prefetch_buffer.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_register_file_ff.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_register_file_fpga.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_register_file_latch.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_wb_stage.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\ibex_wrapper.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\ibex\prim_clock_gating.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\AHBSRAM.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\APB_I2C.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\APB_SPI.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\APB_UART.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\DFFRAM_4K.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\DFFRAMBB.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\DMC_32x16HC.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\GPIO.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\i2c_master.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\PWM32.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\QSPI_XIP_CTRL.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\RAM_3Kx32.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\spi_master.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\TIMER32.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\IPs\WDT32.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\soc_core.v"
+read_verilog -sv "D:\bishe_database\benchmark\rtl_src\chameleon\sky130_stubs.v"
+
+hierarchy -check -top soc_core
+
+proc
+flatten
+
+# Memory handling
+memory -nomap
+memory_dff
+memory_map
+
+# Technology mapping
+techmap
+
+# Map to standard cells
+dfflibmap -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+abc -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
+
+# Clean up
+opt_clean
+opt
+
+# Split nets
+splitnets -ports
+
+# Write netlist
+write_verilog -noattr -noexpr -nohex "D:\bishe_database\benchmark\netlists\chameleon\chameleon_netlist.v"
+
+# Statistics
+stat -liberty "D:\bishe_database\BUFLIB\lib_rvt\saed32rvt_tt1p05v25c.lib"
