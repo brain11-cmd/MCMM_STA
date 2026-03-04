@@ -92,7 +92,9 @@ class MultiAnchorSTAModel(nn.Module):
         beta: float = 1.0,
         scale_clamp: float = 3.0,
         tau_sta: float = 0.07,
+        tf_interval: int = 20,
         dropout: float = 0.0,
+        gnn_dropout: float = None,
         residual_alpha: float = 0.5,
         d_floor: float = 0.0,
         # FiLM parameters
@@ -115,13 +117,15 @@ class MultiAnchorSTAModel(nn.Module):
         # Node input dim
         node_input_dim = pin_static_dim + num_anchors * pin_dyn_dim + cond_dim
 
+        gnn_drop = gnn_dropout if gnn_dropout is not None else dropout
+
         # 1. GNN (FiLM layers live inside GNN when use_film=True)
         self.gnn = GraphSAGEEncoder(
             input_dim=node_input_dim,
             hidden_dim=hidden_dim,
             num_layers=gnn_layers,
             tau=tau_sage,
-            dropout=dropout,
+            dropout=gnn_drop,
             residual_alpha=residual_alpha,
             cond_dim=cond_dim if use_film else 0,
             use_film=use_film,
@@ -160,7 +164,7 @@ class MultiAnchorSTAModel(nn.Module):
         )
 
         # 4. STA
-        self.sta = LevelwiseSTA(tau_sta=tau_sta)
+        self.sta = LevelwiseSTA(tau_sta=tau_sta, tf_interval=tf_interval)
 
         # 5. Endpoint residual head (absorbs STA propagation bias)
         if use_endpoint_residual:
@@ -199,6 +203,8 @@ class MultiAnchorSTAModel(nn.Module):
         edge_cap_dst: torch.Tensor,
         edge_scalars_normed: Optional[torch.Tensor] = None,
         sta_edge_keep: Optional[torch.Tensor] = None,  # [E] bool — cycle cuts
+        at_true: Optional[torch.Tensor] = None,
+        tf_ratio: float = 0.0,
     ) -> ModelOutput:
 
         N = pin_static.shape[0]
@@ -293,6 +299,7 @@ class MultiAnchorSTAModel(nn.Module):
             d_sta, sta_mask, edge_src, edge_dst,
             input_arrival, endpoint_ids, rat_true,
             node_level, edge_level, max_level,
+            at_true=at_true, tf_ratio=tf_ratio,
         )
 
         # Endpoint residual correction (absorbs deep-graph systematic bias)

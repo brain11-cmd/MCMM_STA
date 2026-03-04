@@ -40,6 +40,7 @@ class STALoss:
         lambda_worst: float = 0.3,
         worst_frac: float = 0.2,
         worst_warmup_ratio: float = 0.3,
+        slack_loss_alpha: float = 0.7,
     ):
         self.huber_delta = huber_delta
         self.lambda_edge = lambda_edge
@@ -53,6 +54,7 @@ class STALoss:
         self.lambda_worst = lambda_worst
         self.worst_frac = worst_frac
         self.worst_warmup_ratio = worst_warmup_ratio
+        self.slack_loss_alpha = slack_loss_alpha
 
     def __call__(
         self,
@@ -89,10 +91,17 @@ class STALoss:
                 slack_true.abs().flatten(), 0.95
             ).clamp(min=0.1).detach()
 
-            per_ep_err = F.huber_loss(
+            alpha = self.slack_loss_alpha
+            s0 = self.asinh_scale
+            norm_err = F.huber_loss(
                 slack_hat / slack_scale, slack_true / slack_scale,
                 delta=self.huber_delta, reduction="none",
-            ).mean(dim=-1)  # [M]
+            )
+            asinh_err = F.huber_loss(
+                torch.asinh(slack_hat / s0), torch.asinh(slack_true / s0),
+                delta=self.huber_delta, reduction="none",
+            )
+            per_ep_err = (alpha * norm_err + (1.0 - alpha) * asinh_err).mean(dim=-1)  # [M]
 
             M = per_ep_err.numel()
             k = max(1, int(M * self.worst_frac))

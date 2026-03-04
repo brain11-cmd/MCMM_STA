@@ -11,6 +11,7 @@ v2 changes:
 """
 
 import argparse
+import json
 import math
 import sys
 import time
@@ -79,6 +80,7 @@ def _forward_sample(
     sample: STASample,
     normalizer: FeatureNormalizer,
     device: str,
+    tf_ratio: float = 0.0,
 ) -> ModelOutput:
     pin_static = sample.pin_static.to(device)
     if normalizer.is_ready:
@@ -88,6 +90,10 @@ def _forward_sample(
     edge_scalars_normed = None
     if normalizer.is_ready and "edge_scalars" in normalizer._stats:
         edge_scalars_normed = normalizer.normalize("edge_scalars", edge_scalars)
+
+    at_true_dev = None
+    if tf_ratio > 0 and hasattr(sample, 'at_true') and sample.at_true is not None:
+        at_true_dev = sample.at_true.to(device)
 
     return model(
         pin_static=pin_static,
@@ -117,6 +123,8 @@ def _forward_sample(
         edge_cap_dst=sample.edge_cap_dst.to(device),
         edge_scalars_normed=edge_scalars_normed,
         sta_edge_keep=sample.sta_edge_keep.to(device),
+        at_true=at_true_dev,
+        tf_ratio=tf_ratio,
     )
 
 
@@ -188,7 +196,7 @@ def assert_slack_consistency(
 
 def train_one_epoch(
     model, loader, criterion, optimizer, normalizer,
-    device, grad_clip, epoch, total_epochs,
+    device, grad_clip, epoch, total_epochs, tf_ratio=0.0,
 ) -> Dict[str, float]:
     model.train()
     total_losses = {}
@@ -199,7 +207,7 @@ def train_one_epoch(
     pbar = tqdm(loader, desc=f"Epoch {epoch} [train]", leave=False)
     for sample in pbar:
         optimizer.zero_grad()
-        out = _forward_sample(model, sample, normalizer, device)
+        out = _forward_sample(model, sample, normalizer, device, tf_ratio=tf_ratio)
 
         losses = criterion(
             slack_hat=out.slack_hat,
@@ -339,6 +347,8 @@ def main():
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--resume", type=str, default=None)
+    parser.add_argument("--skip-checks", action="store_true",
+                        help="Skip startup sanity checks (faster launch when data is known-good)")
     args = parser.parse_args()
 
     overrides = {}
@@ -360,7 +370,7 @@ def main():
     ckpt_base = Path(cfg.get("checkpoint_dir", "checkpoints"))
     bm_tag = "_".join(benchmarks)
     film_tag = "film" if use_film else "no_film"
-    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v4"
+    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v5"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Data root:   {data_root}")
@@ -368,8 +378,12 @@ def main():
     print(f"Anchors:     {anchors}")
     print(f"Device:      {device}")
 
-    # Sanity checks
-    topo_orders = run_all_checks(data_root, benchmarks, anchors)
+    # Sanity checks (skip with --skip-checks after first successful run)
+    if args.skip_checks:
+        print("[INFO] Skipping sanity checks (--skip-checks)")
+        topo_orders = {}
+    else:
+        topo_orders = run_all_checks(data_root, benchmarks, anchors)
 
     # Splits
     from utils.io import read_splits
@@ -436,7 +450,9 @@ def main():
         beta=model_cfg.get("beta", 1.0),
         scale_clamp=model_cfg.get("scale_clamp", 3.0),
         tau_sta=model_cfg.get("tau_sta", 0.07),
+        tf_interval=train_cfg.get("tf_interval", 20),
         dropout=model_cfg.get("dropout", 0.0),
+        gnn_dropout=model_cfg.get("gnn_dropout", None),
         residual_alpha=model_cfg.get("residual_alpha", 0.5),
         d_floor=loss_cfg.get("d_floor", 0.0),
         use_film=use_film,
@@ -484,9 +500,10 @@ def main():
         asinh_scale=loss_cfg.get("asinh_scale", 1.0),
         lambda_neg=loss_cfg.get("lambda_neg", 1e-4),
         lambda_at=loss_cfg.get("lambda_at", 0.05),
-        lambda_worst=loss_cfg.get("lambda_worst", 0.3),
+        lambda_worst=loss_cfg.get("lambda_worst", 0.15),
         worst_frac=loss_cfg.get("worst_frac", 0.2),
         worst_warmup_ratio=loss_cfg.get("worst_warmup_ratio", 0.3),
+        slack_loss_alpha=loss_cfg.get("slack_loss_alpha", 0.7),
     )
 
     # Resume (strict=False to support adding FiLM to non-FiLM checkpoint)
@@ -512,16 +529,55 @@ def main():
     patience_counter = 0
     grad_clip = train_cfg.get("grad_clip", 5.0)
 
+    # ---- Schedule parameters ----
+    schedule_frac = loss_cfg.get("schedule_frac", 0.4)
+    lambda_edge_init = loss_cfg.get("lambda_edge_init", loss_cfg.get("lambda_edge", 0.3))
+    lambda_edge_final = loss_cfg.get("lambda_edge", 0.3)
+    lambda_at_init = loss_cfg.get("lambda_at_init", loss_cfg.get("lambda_at", 0.05))
+    lambda_at_final = loss_cfg.get("lambda_at", 0.05)
+    tf_start = train_cfg.get("tf_ratio_start", 0.0)
+    tf_hold_frac = train_cfg.get("tf_hold_frac", 0.15)
+    tf_end_frac = train_cfg.get("tf_end_frac", 0.25)
+    save_every = train_cfg.get("save_every", 5)
+    metrics_log_path = ckpt_dir / "metrics.jsonl"
+
     print(f"\n{'='*70}")
     print(f"Starting training: {epochs} epochs, lr={train_cfg.get('lr', 3e-4)}")
+    print(f"  lambda_edge: {lambda_edge_init} -> {lambda_edge_final} (over {schedule_frac*100:.0f}%)")
+    print(f"  lambda_at:   {lambda_at_init} -> {lambda_at_final} (over {schedule_frac*100:.0f}%)")
+    print(f"  TF:          {tf_start} -> 0 (by {tf_end_frac*100:.0f}% of epochs)")
     print(f"{'='*70}\n")
 
     for epoch in range(start_epoch, epochs):
         t0 = time.time()
 
+        # ---- Per-epoch schedules ----
+        progress = epoch / max(epochs, 1)
+
+        # Teacher forcing: flat for hold period, linear decay to 0 by tf_end_frac
+        if tf_start > 0 and tf_end_frac > tf_hold_frac:
+            if progress < tf_hold_frac:
+                tf_ratio = tf_start
+            elif progress < tf_end_frac:
+                tf_ratio = tf_start * (1.0 - (progress - tf_hold_frac) / (tf_end_frac - tf_hold_frac))
+            else:
+                tf_ratio = 0.0
+        else:
+            tf_ratio = 0.0
+
+        # Lambda schedules (linear from init to final over schedule_frac)
+        transition_end = max(int(epochs * schedule_frac), 1)
+        if epoch < transition_end:
+            t_sched = epoch / transition_end
+            criterion.lambda_edge = lambda_edge_init + (lambda_edge_final - lambda_edge_init) * t_sched
+            criterion.lambda_at = lambda_at_init + (lambda_at_final - lambda_at_init) * t_sched
+        else:
+            criterion.lambda_edge = lambda_edge_final
+            criterion.lambda_at = lambda_at_final
+
         train_losses = train_one_epoch(
             model, train_loader, criterion, optimizer,
-            normalizer, device, grad_clip, epoch, epochs,
+            normalizer, device, grad_clip, epoch, epochs, tf_ratio=tf_ratio,
         )
 
         val_metrics = {}
@@ -536,22 +592,21 @@ def main():
         elapsed = time.time() - t0
 
         macro_nm = val_metrics.get("macro_norm_mae", -1)
+        large_nm = val_metrics.get("large_norm_mae", -1)
         l_slack = train_losses.get('L_slack', 0)
         l_at = train_losses.get('L_at', 0)
         l_worst = train_losses.get('L_worst', 0)
-        at_slack_ratio = l_at / max(l_slack, 1e-9)
         print(
             f"Epoch {epoch:3d} | "
             f"train_loss={train_losses.get('total', 0):.5f} "
             f"(slack={l_slack:.5f} "
             f"edge={train_losses.get('L_edge', 0):.5f} "
             f"worst={l_worst:.5f} "
-            f"at={l_at:.5f} "
-            f"at/slack={at_slack_ratio:.2f}) | "
-            f"val_macro_norm={macro_nm:.5f} "
-            f"val_slack_mae={val_metrics.get('slack_mae', -1):.5f} "
+            f"at={l_at:.5f}) | "
+            f"val_large_nm={large_nm:.5f} "
+            f"val_macro_nm={macro_nm:.5f} "
             f"val_edge_mae={val_metrics.get('edge_mae', -1):.5f} | "
-            f"lr={lr_now:.2e} | {elapsed:.1f}s"
+            f"tf={tf_ratio:.2f} lr={lr_now:.2e} | {elapsed:.1f}s"
         )
 
         # Per-benchmark breakdown (every 10 epochs — avoids log spam)
@@ -566,8 +621,10 @@ def main():
             if parts:
                 print(f"    breakdown: {' | '.join(parts)}")
 
-        # Primary metric: MacroMAE_norm (benchmark-equalized, scale-invariant)
-        if len(val_ds) > 0 and "macro_norm_mae" in val_metrics:
+        # Primary metric: large_norm_mae (prioritize large benchmark quality)
+        if len(val_ds) > 0 and "large_norm_mae" in val_metrics:
+            current_metric = val_metrics["large_norm_mae"]
+        elif "macro_norm_mae" in val_metrics:
             current_metric = val_metrics["macro_norm_mae"]
         elif "slack_mae" in train_losses:
             current_metric = train_losses["slack_mae"]
@@ -579,21 +636,39 @@ def main():
             save_checkpoint(ckpt_dir / "best.pt", model, optimizer, epoch,
                             best_metric, norm_stats=normalizer.state_dict(),
                             extra=ckpt_extra)
-            print(f"  >> New best: macro_norm_mae={best_metric:.6f}")
+            print(f"  >> New best: large_norm_mae={best_metric:.6f}")
         else:
             patience_counter += 1
 
-        if (epoch + 1) % 10 == 0:
-            save_checkpoint(ckpt_dir / "latest.pt", model, optimizer, epoch,
+        if (epoch + 1) % save_every == 0:
+            save_checkpoint(ckpt_dir / f"epoch_{epoch}.pt", model, optimizer, epoch,
                             best_metric, norm_stats=normalizer.state_dict(),
                             extra=ckpt_extra)
+
+        # Metrics logging (JSONL — one JSON object per line)
+        log_entry = {
+            "epoch": epoch,
+            "tf_ratio": round(tf_ratio, 4),
+            "lr": lr_now,
+            "lambda_edge_eff": round(criterion.lambda_edge, 4),
+            "lambda_at_eff": round(criterion.lambda_at, 4),
+        }
+        for k, v in train_losses.items():
+            val = v.item() if hasattr(v, 'item') else v
+            if isinstance(val, (int, float)):
+                log_entry[f"train_{k}"] = round(float(val), 6)
+        for k, v in val_metrics.items():
+            if isinstance(v, (int, float)):
+                log_entry[f"val_{k}"] = round(float(v), 6)
+        with open(metrics_log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry) + "\n")
 
         if patience > 0 and patience_counter >= patience:
             print(f"\nEarly stopping at epoch {epoch}")
             break
 
     print(f"\n{'='*70}")
-    print(f"Training complete. Best macro_norm_mae: {best_metric:.6f}")
+    print(f"Training complete. Best large_norm_mae: {best_metric:.6f}")
     print(f"{'='*70}")
 
 

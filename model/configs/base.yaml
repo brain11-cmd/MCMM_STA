@@ -35,6 +35,7 @@ model:
   scale_clamp: 3.0
   tau_sta: 0.07
   dropout: 0.1
+  gnn_dropout: 0.0
   residual_alpha: 0.5
 
   # FiLM conditioning
@@ -49,17 +50,23 @@ model:
 training:
   epochs: 200
   lr: 3.0e-4
-  weight_decay: 5.0e-5
+  weight_decay: 1.0e-5
   batch_size: 1
   warmup_epochs: 5
   scheduler: cosine
-  patience: 40
+  patience: 0
   grad_clip: 5.0
+  save_every: 5
+  tf_interval: 20
+  tf_ratio_start: 0.25
+  tf_hold_frac: 0.15
+  tf_end_frac: 0.25
 
 # ---- Loss ----
 loss:
   huber_delta: 1.0
   lambda_edge: 0.3
+  lambda_edge_init: 0.45
   lambda_kl: 0.01
   lambda_ent: 0.001
   lambda_scale: 0.0001
@@ -69,8 +76,11 @@ loss:
   asinh_scale: 1.0
   lambda_neg: 1.0e-4
   lambda_at: 0.05
+  lambda_at_init: 0.2
+  schedule_frac: 0.4
+  slack_loss_alpha: 0.7
 
   # Critical-endpoint optimization (disjoint: L_slack covers non-topk, L_worst covers topk)
-  lambda_worst: 0.3
+  lambda_worst: 0.15
   worst_frac: 0.2
   worst_warmup_ratio: 0.3

@@ -102,6 +102,8 @@ def main():
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--output", type=str, default=None, help="JSON output path")
     parser.add_argument("--strict", action="store_true", help="Strict state_dict loading")
+    parser.add_argument("--skip-checks", action="store_true",
+                        help="Skip startup sanity checks (faster launch when data is known-good)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -121,7 +123,11 @@ def main():
     print(f"Checkpoint:  {args.checkpoint}")
     print(f"Device:      {device}")
 
-    topo_orders = run_all_checks(data_root, benchmarks, anchors)
+    if args.skip_checks:
+        print("[INFO] Skipping sanity checks (--skip-checks)")
+        topo_orders = {}
+    else:
+        topo_orders = run_all_checks(data_root, benchmarks, anchors)
 
     # Test targets
     from utils.io import read_splits
@@ -169,6 +175,7 @@ def main():
         beta=model_cfg.get("beta", 1.0),
         scale_clamp=model_cfg.get("scale_clamp", 3.0),
         tau_sta=model_cfg.get("tau_sta", 0.07),
+        tf_interval=cfg.get("training", {}).get("tf_interval", 20),
         dropout=0.0,
         residual_alpha=model_cfg.get("residual_alpha", 0.5),
         d_floor=loss_cfg.get("d_floor", 0.0),

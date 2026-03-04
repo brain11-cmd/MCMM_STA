@@ -157,9 +157,10 @@ class LevelwiseSTA(nn.Module):
       max_level:  int        — max(node_level)
     """
 
-    def __init__(self, tau_sta: float = 0.07):
+    def __init__(self, tau_sta: float = 0.07, tf_interval: int = 20):
         super().__init__()
         self.tau_sta = tau_sta
+        self.tf_interval = tf_interval
         self._lvl_cache: Dict[tuple, tuple] = {}
 
     def forward(
@@ -174,6 +175,8 @@ class LevelwiseSTA(nn.Module):
         node_level: torch.Tensor,        # [N] long (static, precomputed)
         edge_level: torch.Tensor,        # [E] long (static, precomputed)
         max_level: int,                  # python int (static)
+        at_true: torch.Tensor = None,    # [N, 2] ground-truth arrival (for TF)
+        tf_ratio: float = 0.0,           # teacher forcing blend (0=off)
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Returns:
@@ -188,6 +191,13 @@ class LevelwiseSTA(nn.Module):
 
         at_r = input_arrival[:, 0].clone()  # [N]
         at_f = input_arrival[:, 1].clone()  # [N]
+
+        use_tf = (tf_ratio > 0 and at_true is not None
+                  and self.training and self.tf_interval > 0)
+        if use_tf:
+            gt_r = at_true[:, 0].detach()
+            gt_f = at_true[:, 1].detach()
+            gt_valid = at_true.abs().sum(dim=1) > 1e-6
 
         # --- Level grouping (cached per unique graph) ---
         # Key includes edge_level.data_ptr() to guarantee collision-free caching
@@ -245,6 +255,22 @@ class LevelwiseSTA(nn.Module):
                     fall_vals[fall_valid], fall_idx[fall_valid], N, tau
                 )
                 at_f = torch.where(vmask, upd_f, at_f)
+
+            # ---- Teacher forcing: blend every tf_interval levels ----
+            if use_tf and lvl % self.tf_interval == 0:
+                reachable = (at_r > (NEG_INF + 1)) | (at_f > (NEG_INF + 1))
+                blend_mask = vmask & gt_valid & reachable
+                if blend_mask.any():
+                    at_r = torch.where(
+                        blend_mask,
+                        (1.0 - tf_ratio) * at_r + tf_ratio * gt_r,
+                        at_r,
+                    )
+                    at_f = torch.where(
+                        blend_mask,
+                        (1.0 - tf_ratio) * at_f + tf_ratio * gt_f,
+                        at_f,
+                    )
 
         # Stack into [N, 2]
         at_all = torch.stack([at_r, at_f], dim=1)
