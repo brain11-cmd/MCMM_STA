@@ -26,7 +26,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from utils.seed import seed_everything
 from utils.sanity_checks import run_all_checks
-from utils.metrics import slack_metrics, edge_delay_metrics
+from utils.metrics import (
+    slack_metrics, edge_delay_metrics, slack_scale_p95,
+    normalized_slack_mae, compute_eval_report,
+)
 from data.dataset import STADataset
 from data.collate import collate_sta
 from data.normalization import FeatureNormalizer
@@ -51,19 +54,23 @@ def evaluate_test(model, loader, normalizer, device):
         dt = sample.d_target_true.to(device)
         mk = sample.mask.to(device)
 
-        # Per-sample metrics (CPU for JSON serialization)
-        sm = slack_metrics(sp.detach().cpu(), st.detach().cpu())
+        sp_cpu = sp.detach().cpu()
+        st_cpu = st.detach().cpu()
+        sm = slack_metrics(sp_cpu, st_cpu)
         em = edge_delay_metrics(dp.detach().cpu(), dt.detach().cpu(), mk.detach().cpu())
 
         valid_count = ((mk > 0.5) & (sample.edge_valid.to(device).unsqueeze(-1) > 0.5)).sum().item()
         total_channels = mk.numel()
 
+        scale = slack_scale_p95(st_cpu)
         per_sample.append({
             "benchmark": sample.benchmark,
             "corner": sample.target_corner,
             "num_endpoints": int(sample.endpoint_ids.shape[0]),
             "num_edges": int(sample.edge_src_id.shape[0]),
             "valid_ratio": valid_count / max(total_channels, 1),
+            "slack_scale": scale,
+            "slack_norm_mae": normalized_slack_mae(sp_cpu, st_cpu, scale),
             **sm, **em,
         })
 
@@ -81,6 +88,9 @@ def evaluate_test(model, loader, normalizer, device):
         agg.update(edge_delay_metrics(
             torch.cat(all_dp).cpu(), torch.cat(all_dt).cpu(), torch.cat(all_mk).cpu()
         ))
+
+    report = compute_eval_report(per_sample)
+    agg.update(report)
 
     return per_sample, agg
 
@@ -165,6 +175,7 @@ def main():
         use_film=use_film,
         film_hidden=model_cfg.get("film_hidden", 128),
         film_gamma_scale=model_cfg.get("film_gamma_scale", 0.5),
+        use_endpoint_residual=model_cfg.get("use_endpoint_residual", True),
     ).to(device)
 
     # Load weights

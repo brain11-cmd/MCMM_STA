@@ -42,6 +42,35 @@ class ModelOutput:
     gG: torch.Tensor           # [K]
     s_hat: torch.Tensor        # [E, K, 4]
     log_scale: torch.Tensor    # [E, K, 4]
+    delta_slack: Optional[torch.Tensor] = None  # [M, 2] endpoint residual
+
+
+class EndpointResidualHead(nn.Module):
+    """Lightweight MLP that predicts a per-endpoint slack correction.
+
+    Zero-initialized output layer so the residual starts at 0, letting the
+    physics-based STA dominate early training.  Only endpoints with persistent
+    systematic bias (deep-graph error accumulation) will develop non-zero
+    corrections over time.
+    """
+
+    def __init__(self, hidden_dim: int, cond_dim: int, dropout: float = 0.0):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(hidden_dim + cond_dim, hidden_dim // 2),
+            nn.LayerNorm(hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout) if dropout > 0 else nn.Identity(),
+            nn.Linear(hidden_dim // 2, 2),
+        )
+        nn.init.zeros_(self.mlp[-1].weight)
+        nn.init.zeros_(self.mlp[-1].bias)
+
+    def forward(self, h_nodes: torch.Tensor, endpoint_ids: torch.Tensor,
+                z_t: torch.Tensor) -> torch.Tensor:
+        h_ep = h_nodes[endpoint_ids]
+        z_ep = z_t.unsqueeze(0).expand(h_ep.size(0), -1)
+        return self.mlp(torch.cat([h_ep, z_ep], dim=-1))
 
 
 class MultiAnchorSTAModel(nn.Module):
@@ -70,6 +99,8 @@ class MultiAnchorSTAModel(nn.Module):
         use_film: bool = False,
         film_hidden: int = 128,
         film_gamma_scale: float = 0.5,
+        # Endpoint residual head
+        use_endpoint_residual: bool = False,
     ):
         super().__init__()
         self.K = num_anchors
@@ -131,6 +162,14 @@ class MultiAnchorSTAModel(nn.Module):
         # 4. STA
         self.sta = LevelwiseSTA(tau_sta=tau_sta)
 
+        # 5. Endpoint residual head (absorbs STA propagation bias)
+        if use_endpoint_residual:
+            self.endpoint_residual = EndpointResidualHead(
+                hidden_dim, cond_dim, dropout=dropout,
+            )
+        else:
+            self.endpoint_residual = None
+
     def forward(
         self,
         pin_static: torch.Tensor,
@@ -160,8 +199,6 @@ class MultiAnchorSTAModel(nn.Module):
         edge_cap_dst: torch.Tensor,
         edge_scalars_normed: Optional[torch.Tensor] = None,
         sta_edge_keep: Optional[torch.Tensor] = None,  # [E] bool — cycle cuts
-        at_true: Optional[torch.Tensor] = None,         # [N, 2] for teacher forcing
-        tf_ratio: float = 0.0,                           # teacher forcing blend (0=off)
     ) -> ModelOutput:
 
         N = pin_static.shape[0]
@@ -252,14 +289,22 @@ class MultiAnchorSTAModel(nn.Module):
         edge_level = node_level[edge_dst]
         max_level = int(node_level.max().item())
 
-        at_all, at_ep, slack_hat = self.sta(
+        at_all, at_ep, slack_sta = self.sta(
             d_sta, sta_mask, edge_src, edge_dst,
             input_arrival, endpoint_ids, rat_true,
             node_level, edge_level, max_level,
-            at_true=at_true, tf_ratio=tf_ratio,
         )
+
+        # Endpoint residual correction (absorbs deep-graph systematic bias)
+        delta_slack = None
+        if self.endpoint_residual is not None:
+            delta_slack = self.endpoint_residual(h_nodes, endpoint_ids, z_t)
+            slack_hat = slack_sta + delta_slack
+        else:
+            slack_hat = slack_sta
 
         return ModelOutput(
             d_hat=d_hat, at_all=at_all, at_ep=at_ep, slack_hat=slack_hat,
             g_e=g_e, gG=gG, s_hat=s_hat, log_scale=log_scale,
+            delta_slack=delta_slack,
         )

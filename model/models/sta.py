@@ -23,7 +23,6 @@ STA propagation:
     AT[v, Fall] = smoothmax over e=(u->v):  { AT[u,R]+d[RF],  AT[u,F]+d[FF] }
 """
 
-import math
 from typing import Tuple, Dict, List
 from collections import defaultdict
 
@@ -129,7 +128,7 @@ def scatter_smoothmax(
     out = max_val + float(tau) * torch.log(sum_exp.clamp_min(1e-30))
 
     # No-candidate detection via bincount (robust, not threshold-based)
-    has_candidate = torch.bincount(index, minlength=dim_size).to(device) > 0
+    has_candidate = torch.bincount(index, minlength=dim_size) > 0
     out = torch.where(has_candidate, out, torch.full_like(out, NEG_INF))
 
     return out.to(dtype=orig_dtype)
@@ -147,12 +146,10 @@ class LevelwiseSTA(nn.Module):
     topological levels (typically 20-100 levels << N nodes).  Within each
     level, all operations are batched GPU tensor ops.
 
-    Teacher forcing (v3):
-      During training, every ``tf_interval`` levels the predicted arrival times
-      are blended with ground-truth arrivals:
-          at = (1-p)*at_pred + p*at_true
-      where p = tf_ratio (annealed by caller across epochs).  This breaks
-      error accumulation on deep graphs while preserving gradient flow.
+    v2.3 improvements:
+      - Direct assignment (no torch.maximum — was implicit self-loop)
+      - Precomputed edge indices per level (O(E_l) per level, not O(E))
+      - Vectorized candidate construction (one cat + mask, not conditional appends)
 
     Requires precomputed static tensors:
       node_level: [N] int64 — topological depth (sources=0)
@@ -160,10 +157,9 @@ class LevelwiseSTA(nn.Module):
       max_level:  int        — max(node_level)
     """
 
-    def __init__(self, tau_sta: float = 0.07, tf_interval: int = 20):
+    def __init__(self, tau_sta: float = 0.07):
         super().__init__()
         self.tau_sta = tau_sta
-        self.tf_interval = tf_interval
         self._lvl_cache: Dict[tuple, tuple] = {}
 
     def forward(
@@ -178,8 +174,6 @@ class LevelwiseSTA(nn.Module):
         node_level: torch.Tensor,        # [N] long (static, precomputed)
         edge_level: torch.Tensor,        # [E] long (static, precomputed)
         max_level: int,                  # python int (static)
-        at_true: torch.Tensor = None,    # [N, 2] ground-truth arrival (for teacher forcing)
-        tf_ratio: float = 0.0,           # teacher forcing blend ratio (0=off, 1=full reset)
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Returns:
@@ -195,26 +189,16 @@ class LevelwiseSTA(nn.Module):
         at_r = input_arrival[:, 0].clone()  # [N]
         at_f = input_arrival[:, 1].clone()  # [N]
 
-        # Teacher forcing ground truth (pre-extract columns)
-        use_tf = (tf_ratio > 0 and at_true is not None
-                  and self.training and self.tf_interval > 0)
-        if use_tf:
-            gt_r = at_true[:, 0].detach()
-            gt_f = at_true[:, 1].detach()
-            gt_valid = at_true.abs().sum(dim=1) > 1e-6
-
-            # Depth-weighted tf: shallow nodes get little forcing, deep nodes get full.
-            # L0 = 70th percentile of max_level, tau scales with graph depth.
-            L0 = max_level * 0.7
-            tf_tau = max(max_level * 0.05, 5.0)
-
         # --- Level grouping (cached per unique graph) ---
-        # Key = (N, E, max_level): unique across 9 benchmarks (different node/edge counts).
-        # Avoids GPU sync (.item()/.sum()) while being collision-free for this dataset.
+        # Key includes edge_level.data_ptr() to guarantee collision-free caching
+        # even if two benchmarks happen to share (N, E, max_level).
         E = edge_level.shape[0]
-        _key = (N, E, max_level)
+        _key = (N, E, max_level, edge_level.data_ptr())
         if _key in self._lvl_cache:
             order, counts_cpu, offsets_cpu = self._lvl_cache[_key]
+            if order.device != d_hat.device:
+                order = order.to(d_hat.device)
+                self._lvl_cache[_key] = (order, counts_cpu, offsets_cpu)
         else:
             order = torch.argsort(edge_level)
             level_counts = torch.bincount(edge_level, minlength=max_level + 1)
@@ -261,32 +245,6 @@ class LevelwiseSTA(nn.Module):
                     fall_vals[fall_valid], fall_idx[fall_valid], N, tau
                 )
                 at_f = torch.where(vmask, upd_f, at_f)
-
-            # ---- Teacher forcing: depth-weighted blend every tf_interval levels ----
-            if use_tf and lvl % self.tf_interval == 0:
-                tf_depth = 1.0 / (1.0 + math.exp(-(lvl - L0) / tf_tau))
-                tf_eff = tf_ratio * tf_depth
-
-                if tf_eff >= 1e-4:
-                    reachable_now = (at_r > (NEG_INF + 1)) | (at_f > (NEG_INF + 1))
-                    has_level_cand = torch.zeros(N, dtype=torch.bool, device=at_r.device)
-                    if rise_valid.any():
-                        has_level_cand[rise_idx[rise_valid]] = True
-                    if fall_valid.any():
-                        has_level_cand[fall_idx[fall_valid]] = True
-
-                    blend = vmask & gt_valid & reachable_now & has_level_cand
-                    if blend.any():
-                        at_r = torch.where(
-                            blend,
-                            (1.0 - tf_eff) * at_r + tf_eff * gt_r,
-                            at_r,
-                        )
-                        at_f = torch.where(
-                            blend,
-                            (1.0 - tf_eff) * at_f + tf_eff * gt_f,
-                            at_f,
-                        )
 
         # Stack into [N, 2]
         at_all = torch.stack([at_r, at_f], dim=1)

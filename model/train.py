@@ -28,8 +28,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.seed import seed_everything
-from utils.checkpoint import save_checkpoint, load_checkpoint
-from utils.metrics import slack_metrics, edge_delay_metrics
+from utils.checkpoint import save_checkpoint
+from utils.metrics import (
+    slack_metrics, edge_delay_metrics, slack_scale_p95,
+    normalized_slack_mae, compute_eval_report,
+)
 from utils.sanity_checks import run_all_checks
 from data.dataset import STADataset, STASample
 from data.collate import collate_sta
@@ -76,24 +79,16 @@ def _forward_sample(
     sample: STASample,
     normalizer: FeatureNormalizer,
     device: str,
-    tf_ratio: float = 0.0,
 ) -> ModelOutput:
     pin_static = sample.pin_static.to(device)
     if normalizer.is_ready:
         pin_static = normalizer.normalize("pin_static", pin_static)
 
-    # ---- Edge scalar normalization (v2: z-score after log1p) ----
     edge_scalars = _build_edge_scalars(sample).to(device)
     edge_scalars_normed = None
     if normalizer.is_ready and "edge_scalars" in normalizer._stats:
         edge_scalars_normed = normalizer.normalize("edge_scalars", edge_scalars)
 
-    # ---- Teacher forcing: pass ground-truth arrival times when training ----
-    at_true_dev = None
-    if tf_ratio > 0 and hasattr(sample, "at_true") and sample.at_true is not None:
-        at_true_dev = sample.at_true.to(device)
-
-    # ---- Force index tensors to long (prevents embedding / scatter errors) ----
     return model(
         pin_static=pin_static,
         pin_dyn_anchor=sample.pin_dyn_anchor.to(device),
@@ -122,8 +117,6 @@ def _forward_sample(
         edge_cap_dst=sample.edge_cap_dst.to(device),
         edge_scalars_normed=edge_scalars_normed,
         sta_edge_keep=sample.sta_edge_keep.to(device),
-        at_true=at_true_dev,
-        tf_ratio=tf_ratio,
     )
 
 
@@ -196,7 +189,6 @@ def assert_slack_consistency(
 def train_one_epoch(
     model, loader, criterion, optimizer, normalizer,
     device, grad_clip, epoch, total_epochs,
-    grad_accum_steps: int = 1,
 ) -> Dict[str, float]:
     model.train()
     total_losses = {}
@@ -204,25 +196,10 @@ def train_one_epoch(
     running_slack_mae = 0.0
     slack_count = 0
 
-    # Teacher forcing ratio: phased schedule
-    #   0–15% epochs:  tf = 0.5  (bootstrap)
-    #  15–40% epochs:  tf = 0.5 → 0.1  (gradual release)
-    #  40–50% epochs:  tf = 0.1 → 0    (final release)
-    #  50–100% epochs: tf = 0           (pure self-supervised, at least half of training)
-    progress = epoch / max(total_epochs, 1)
-    if progress < 0.15:
-        tf_ratio = 0.5
-    elif progress < 0.40:
-        tf_ratio = 0.5 - 0.4 * (progress - 0.15) / 0.25
-    elif progress < 0.50:
-        tf_ratio = 0.1 * (1.0 - (progress - 0.40) / 0.10)
-    else:
-        tf_ratio = 0.0
-
-    optimizer.zero_grad()
     pbar = tqdm(loader, desc=f"Epoch {epoch} [train]", leave=False)
-    for step_i, sample in enumerate(pbar):
-        out = _forward_sample(model, sample, normalizer, device, tf_ratio=tf_ratio)
+    for sample in pbar:
+        optimizer.zero_grad()
+        out = _forward_sample(model, sample, normalizer, device)
 
         losses = criterion(
             slack_hat=out.slack_hat,
@@ -239,18 +216,15 @@ def train_one_epoch(
             epoch=epoch, total_epochs=total_epochs,
         )
 
-        loss = losses["total"] / grad_accum_steps
+        loss = losses["total"]
         if torch.isnan(loss) or torch.isinf(loss):
             print(f"  [WARN] NaN/Inf loss at epoch {epoch}, skipping")
             continue
 
         loss.backward()
-
-        if (step_i + 1) % grad_accum_steps == 0 or (step_i + 1) == len(loader):
-            if grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-            optimizer.step()
-            optimizer.zero_grad()
+        if grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        optimizer.step()
 
         for k, v in losses.items():
             if isinstance(v, torch.Tensor):
@@ -264,7 +238,7 @@ def train_one_epoch(
                 ).abs().mean().item()
                 slack_count += 1
 
-        pbar.set_postfix(loss=f"{loss.item() * grad_accum_steps:.4f}", tf=f"{tf_ratio:.2f}")
+        pbar.set_postfix(loss=f"{loss.item():.4f}")
 
     if count > 0:
         for k in total_losses:
@@ -280,6 +254,7 @@ def evaluate(model, loader, criterion, normalizer, device, epoch=0, total_epochs
     all_sp, all_st, all_dp, all_dt, all_mk = [], [], [], [], []
     total_losses = {}
     count = 0
+    per_sample_info = []
 
     for sample in tqdm(loader, desc="[eval]", leave=False):
         out = _forward_sample(model, sample, normalizer, device)
@@ -303,11 +278,25 @@ def evaluate(model, loader, criterion, normalizer, device, epoch=0, total_epochs
                 total_losses[k] = total_losses.get(k, 0.0) + v.item()
         count += 1
 
-        all_sp.append(out.slack_hat.cpu())
-        all_st.append(sample.slack_true.cpu())
+        sp_cpu = out.slack_hat.cpu()
+        st_cpu = sample.slack_true.cpu()
+
+        all_sp.append(sp_cpu)
+        all_st.append(st_cpu)
         all_dp.append(out.d_hat.cpu())
         all_dt.append(sample.d_target_true.cpu())
         all_mk.append(sample.mask.cpu())
+
+        scale = slack_scale_p95(st_cpu)
+        per_sample_info.append({
+            "benchmark": sample.benchmark,
+            "corner": sample.target_corner,
+            "slack_mae": (sp_cpu - st_cpu).abs().mean().item(),
+            "slack_norm_mae": normalized_slack_mae(sp_cpu, st_cpu, scale),
+            "edge_mae": edge_delay_metrics(
+                out.d_hat.cpu(), sample.d_target_true.cpu(), sample.mask.cpu(),
+            ).get("edge_mae", 0.0),
+        })
 
     if count > 0:
         for k in total_losses:
@@ -318,6 +307,9 @@ def evaluate(model, loader, criterion, normalizer, device, epoch=0, total_epochs
         metrics.update(slack_metrics(torch.cat(all_sp), torch.cat(all_st)))
     if all_dp:
         metrics.update(edge_delay_metrics(torch.cat(all_dp), torch.cat(all_dt), torch.cat(all_mk)))
+
+    report = compute_eval_report(per_sample_info)
+    metrics.update(report)
     return metrics
 
 
@@ -364,11 +356,11 @@ def main():
     anchors = cfg["anchors"]
     # Auto-name checkpoint dir: checkpoints/{benchmarks}_{film|no_film}/
     model_cfg = cfg.get("model", {})
-    use_film = model_cfg.get("use_film", True)
+    use_film = model_cfg.get("use_film", False)
     ckpt_base = Path(cfg.get("checkpoint_dir", "checkpoints"))
     bm_tag = "_".join(benchmarks)
     film_tag = "film" if use_film else "no_film"
-    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v3"
+    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v4"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Data root:   {data_root}")
@@ -422,8 +414,11 @@ def main():
 
     # Model (v2.4) — vocab sizes from union of all benchmarks
     loss_cfg = cfg.get("loss", {})
-    max_cell_types = max(len(bs.cell_type_vocab) for bs in train_ds._static_cache.values())
-    max_pin_roles = max(len(bs.pin_role_vocab) for bs in train_ds._static_cache.values())
+    max_cell_types = max(len(bm_s.cell_type_vocab) for bm_s in train_ds._static_cache.values())
+    max_pin_roles = max(len(bm_s.pin_role_vocab) for bm_s in train_ds._static_cache.values())
+    num_cell_types = max_cell_types + 1
+    num_pin_roles = max_pin_roles + 1
+    ckpt_extra = {"num_cell_types": num_cell_types, "num_pin_roles": num_pin_roles}
     model = MultiAnchorSTAModel(
         num_anchors=len(anchors),
         pin_static_dim=2,
@@ -436,8 +431,8 @@ def main():
         tau_sage=model_cfg.get("tau_sage", 1.0),
         edge_mlp_hidden=model_cfg.get("edge_mlp_hidden", 256),
         edge_mlp_layers=model_cfg.get("edge_mlp_layers", 3),
-        num_cell_types=max_cell_types + 1,
-        num_pin_roles=max_pin_roles + 1,
+        num_cell_types=num_cell_types,
+        num_pin_roles=num_pin_roles,
         beta=model_cfg.get("beta", 1.0),
         scale_clamp=model_cfg.get("scale_clamp", 3.0),
         tau_sta=model_cfg.get("tau_sta", 0.07),
@@ -447,6 +442,7 @@ def main():
         use_film=use_film,
         film_hidden=model_cfg.get("film_hidden", 128),
         film_gamma_scale=model_cfg.get("film_gamma_scale", 0.5),
+        use_endpoint_residual=model_cfg.get("use_endpoint_residual", True),
     ).to(device)
 
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -487,7 +483,10 @@ def main():
         d_floor=loss_cfg.get("d_floor", 0.1),
         asinh_scale=loss_cfg.get("asinh_scale", 1.0),
         lambda_neg=loss_cfg.get("lambda_neg", 1e-4),
-        lambda_at=loss_cfg.get("lambda_at", 0.1),
+        lambda_at=loss_cfg.get("lambda_at", 0.05),
+        lambda_worst=loss_cfg.get("lambda_worst", 0.3),
+        worst_frac=loss_cfg.get("worst_frac", 0.2),
+        worst_warmup_ratio=loss_cfg.get("worst_warmup_ratio", 0.3),
     )
 
     # Resume (strict=False to support adding FiLM to non-FiLM checkpoint)
@@ -509,10 +508,9 @@ def main():
         print(f"  Resumed at epoch {start_epoch}, best_metric={best_metric:.6f}")
 
     # Training loop
-    patience = train_cfg.get("patience", 30)
+    patience = train_cfg.get("patience", 40)
     patience_counter = 0
     grad_clip = train_cfg.get("grad_clip", 5.0)
-    grad_accum_steps = train_cfg.get("grad_accum_steps", 1)
 
     print(f"\n{'='*70}")
     print(f"Starting training: {epochs} epochs, lr={train_cfg.get('lr', 3e-4)}")
@@ -524,7 +522,6 @@ def main():
         train_losses = train_one_epoch(
             model, train_loader, criterion, optimizer,
             normalizer, device, grad_clip, epoch, epochs,
-            grad_accum_steps=grad_accum_steps,
         )
 
         val_metrics = {}
@@ -538,21 +535,40 @@ def main():
         lr_now = optimizer.param_groups[0]["lr"]
         elapsed = time.time() - t0
 
+        macro_nm = val_metrics.get("macro_norm_mae", -1)
+        l_slack = train_losses.get('L_slack', 0)
+        l_at = train_losses.get('L_at', 0)
+        l_worst = train_losses.get('L_worst', 0)
+        at_slack_ratio = l_at / max(l_slack, 1e-9)
         print(
             f"Epoch {epoch:3d} | "
             f"train_loss={train_losses.get('total', 0):.5f} "
-            f"(slack={train_losses.get('L_slack', 0):.5f} "
+            f"(slack={l_slack:.5f} "
             f"edge={train_losses.get('L_edge', 0):.5f} "
-            f"scale={train_losses.get('L_scale', 0):.5f}) | "
+            f"worst={l_worst:.5f} "
+            f"at={l_at:.5f} "
+            f"at/slack={at_slack_ratio:.2f}) | "
+            f"val_macro_norm={macro_nm:.5f} "
             f"val_slack_mae={val_metrics.get('slack_mae', -1):.5f} "
-            f"val_edge_mae={val_metrics.get('edge_mae', -1):.5f} "
-            f"ent_decay={train_losses.get('ent_decay', 1):.2f} | "
+            f"val_edge_mae={val_metrics.get('edge_mae', -1):.5f} | "
             f"lr={lr_now:.2e} | {elapsed:.1f}s"
         )
 
-        # Consistent metric: always prefer slack_mae (from val or train)
-        if len(val_ds) > 0 and "slack_mae" in val_metrics:
-            current_metric = val_metrics["slack_mae"]
+        # Per-benchmark breakdown (every 10 epochs — avoids log spam)
+        if (epoch + 1) % 10 == 0 and val_metrics:
+            from utils.metrics import LARGE_BENCHMARKS, MEDIUM_BENCHMARKS
+            detail_bms = sorted(LARGE_BENCHMARKS | MEDIUM_BENCHMARKS)
+            parts = []
+            for bm_name in detail_bms:
+                nm_key = f"{bm_name}_norm_mae"
+                if nm_key in val_metrics:
+                    parts.append(f"{bm_name}={val_metrics[nm_key]:.4f}")
+            if parts:
+                print(f"    breakdown: {' | '.join(parts)}")
+
+        # Primary metric: MacroMAE_norm (benchmark-equalized, scale-invariant)
+        if len(val_ds) > 0 and "macro_norm_mae" in val_metrics:
+            current_metric = val_metrics["macro_norm_mae"]
         elif "slack_mae" in train_losses:
             current_metric = train_losses["slack_mae"]
         else:
@@ -561,21 +577,23 @@ def main():
             best_metric = current_metric
             patience_counter = 0
             save_checkpoint(ckpt_dir / "best.pt", model, optimizer, epoch,
-                            best_metric, norm_stats=normalizer.state_dict())
-            print(f"  >> New best: slack_mae={best_metric:.6f}")
+                            best_metric, norm_stats=normalizer.state_dict(),
+                            extra=ckpt_extra)
+            print(f"  >> New best: macro_norm_mae={best_metric:.6f}")
         else:
             patience_counter += 1
 
         if (epoch + 1) % 10 == 0:
             save_checkpoint(ckpt_dir / "latest.pt", model, optimizer, epoch,
-                            best_metric, norm_stats=normalizer.state_dict())
+                            best_metric, norm_stats=normalizer.state_dict(),
+                            extra=ckpt_extra)
 
         if patience > 0 and patience_counter >= patience:
             print(f"\nEarly stopping at epoch {epoch}")
             break
 
     print(f"\n{'='*70}")
-    print(f"Training complete. Best slack_mae: {best_metric:.6f}")
+    print(f"Training complete. Best macro_norm_mae: {best_metric:.6f}")
     print(f"{'='*70}")
 
 
