@@ -8,6 +8,7 @@ Components:
   L_ent:    Low-entropy penalty on global gate (annealed)
   L_scale:  L2 on raw log_scale
   L_neg:    Squared penalty for d_hat < -d_floor (stronger barrier than linear)
+  L_worst:  Critical-endpoint-focused slack error (prefer violating endpoints)
 
 v2.5 fixes over v2.4:
   - Edge loss only monitors cell arcs (net arcs excluded — matches STA mask semantics)
@@ -36,6 +37,9 @@ class STALoss:
         asinh_scale: float = 1.0,
         lambda_neg: float = 1e-4,
         lambda_at: float = 0.1,
+        lambda_worst: float = 0.2,
+        worst_frac: float = 0.2,
+        worst_warmup_ratio: float = 0.3,
     ):
         self.huber_delta = huber_delta
         self.lambda_edge = lambda_edge
@@ -46,6 +50,9 @@ class STALoss:
         self.asinh_scale = asinh_scale
         self.lambda_neg = lambda_neg
         self.lambda_at = lambda_at
+        self.lambda_worst = lambda_worst
+        self.worst_frac = worst_frac
+        self.worst_warmup_ratio = worst_warmup_ratio
 
     def __call__(
         self,
@@ -75,6 +82,41 @@ class STALoss:
         else:
             L_slack = torch.tensor(0.0, device=device)
         losses["L_slack"] = L_slack
+
+        # ---- 1.5 Critical-endpoint-focused slack loss ----
+        # Strategy:
+        #   1) Prefer endpoints with true negative slack (timing violations)
+        #   2) If no violation exists, fallback to top-k hardest endpoints by error
+        #   3) Warm up this loss gradually to avoid destabilizing early fitting
+        if self.lambda_worst > 0 and slack_hat.numel() > 0:
+            per_ep_err = F.huber_loss(
+                slack_hat, slack_true,
+                delta=self.huber_delta,
+                reduction="none",
+            ).mean(dim=-1)  # [M]
+            per_ep_true = slack_true.mean(dim=-1)  # [M]
+
+            frac = float(min(max(self.worst_frac, 0.0), 1.0))
+            k = max(1, int(per_ep_err.numel() * frac))
+            k = min(k, per_ep_err.numel())
+
+            violating = per_ep_true < 0.0
+            if violating.any():
+                # Focus on violating endpoints first.
+                chosen = per_ep_err[violating]
+                if chosen.numel() > k:
+                    chosen = torch.topk(chosen, k=k, largest=True).values
+                L_worst = chosen.mean()
+            else:
+                top_vals = torch.topk(per_ep_err, k=k, largest=True).values
+                L_worst = top_vals.mean()
+
+            warmup_steps = max(int(total_epochs * self.worst_warmup_ratio), 1)
+            warm = min(max((epoch + 1) / warmup_steps, 0.0), 1.0)
+            L_worst = L_worst * warm
+        else:
+            L_worst = torch.tensor(0.0, device=device)
+        losses["L_worst"] = L_worst
 
         # ---- 2. Edge delay loss (asinh-Huber, cell arcs only) ----
         # valid = mask>0 AND edge_valid>0 AND cell arc (not net)
@@ -157,6 +199,7 @@ class STALoss:
             + self.lambda_scale * L_scale
             + self.lambda_neg * L_neg
             + self.lambda_at * L_at
+            + self.lambda_worst * L_worst
         )
         losses["total"] = total
 

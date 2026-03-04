@@ -34,7 +34,8 @@ def masked_mape(pred: torch.Tensor, target: torch.Tensor,
 
 
 def slack_metrics(slack_pred: torch.Tensor,
-                  slack_true: torch.Tensor) -> Dict[str, float]:
+                  slack_true: torch.Tensor,
+                  min_ss_tot: float = 1e-6) -> Dict[str, float]:
     """
     Compute MAE / RMSE / R² for endpoint slack.
     
@@ -52,9 +53,23 @@ def slack_metrics(slack_pred: torch.Tensor,
     ss_res = (diff ** 2).sum().item()
     mean_true = slack_true.mean()
     ss_tot = ((slack_true - mean_true) ** 2).sum().item()
-    r2 = 1.0 - ss_res / (ss_tot + 1e-12)
 
-    return {"slack_mae": mae, "slack_rmse": rmse, "slack_r2": r2}
+    # When ground-truth variance is near-zero, R² becomes numerically unstable
+    # and can explode to huge negative values even with tiny RMSE.
+    if ss_tot < min_ss_tot:
+        r2 = float("nan")
+        r2_flag = 0.0
+    else:
+        r2 = 1.0 - ss_res / (ss_tot + 1e-12)
+        r2_flag = 1.0
+
+    return {
+        "slack_mae": mae,
+        "slack_rmse": rmse,
+        "slack_r2": r2,
+        "slack_ss_tot": ss_tot,
+        "slack_r2_valid": r2_flag,
+    }
 
 
 def edge_delay_metrics(d_pred: torch.Tensor, d_true: torch.Tensor,
@@ -70,7 +85,6 @@ def edge_delay_metrics(d_pred: torch.Tensor, d_true: torch.Tensor,
         "edge_mae": masked_mae(d_pred, d_true, mask).item(),
         "edge_rmse": masked_rmse(d_pred, d_true, mask).item(),
     }
-
 
 
 

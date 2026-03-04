@@ -69,3 +69,8 @@ loss:
   asinh_scale: 1.0         # edge loss: asinh(x / asinh_scale)
   lambda_neg: 1.0e-4       # penalty for d_hat < -d_floor
   lambda_at: 0.1           # arrival time supervision on all non-source reachable nodes
+
+  # Critical-endpoint optimization (prioritize violating endpoints, then hard tail)
+  lambda_worst: 0.2         # weight of critical-endpoint slack loss
+  worst_frac: 0.2           # select top 20% endpoints inside focus set
+  worst_warmup_ratio: 0.3   # linearly ramp this loss over first 30% epochs

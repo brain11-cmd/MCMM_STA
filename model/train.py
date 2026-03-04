@@ -463,6 +463,9 @@ def main():
         asinh_scale=loss_cfg.get("asinh_scale", 1.0),
         lambda_neg=loss_cfg.get("lambda_neg", 1e-4),
         lambda_at=loss_cfg.get("lambda_at", 0.1),
+        lambda_worst=loss_cfg.get("lambda_worst", 0.2),
+        worst_frac=loss_cfg.get("worst_frac", 0.2),
+        worst_warmup_ratio=loss_cfg.get("worst_warmup_ratio", 0.3),
     )
 
     # Resume (strict=False to support adding FiLM to non-FiLM checkpoint)

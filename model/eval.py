@@ -82,6 +82,11 @@ def evaluate_test(model, loader, normalizer, device):
             torch.cat(all_dp).cpu(), torch.cat(all_dt).cpu(), torch.cat(all_mk).cpu()
         ))
 
+    # Per-sample R² diagnostic: count numerically unstable cases
+    invalid_r2 = sum(1 for x in per_sample if x.get("slack_r2_valid", 1.0) < 0.5)
+    agg["num_samples"] = float(len(per_sample))
+    agg["num_invalid_r2_samples"] = float(invalid_r2)
+
     return per_sample, agg
 
 
