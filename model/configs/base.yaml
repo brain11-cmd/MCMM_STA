@@ -1,5 +1,5 @@
 # ============================================================================
-# Physics-Informed Multi-Anchor GNN STA — v4 Configuration
+# Physics-Informed Multi-Anchor GNN STA — v7 Configuration
 # ============================================================================
 
 seed: 42
@@ -35,7 +35,7 @@ model:
   scale_clamp: 3.0
   tau_sta: 0.07
   dropout: 0.1
-  gnn_dropout: 0.0
+  gnn_dropout: 0.1
   residual_alpha: 0.5
 
   # FiLM conditioning
@@ -50,7 +50,7 @@ model:
 training:
   epochs: 200
   lr: 3.0e-4
-  weight_decay: 1.0e-5
+  weight_decay: 1.0e-4
   batch_size: 1
   warmup_epochs: 5
   scheduler: cosine

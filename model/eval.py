@@ -104,6 +104,9 @@ def main():
     parser.add_argument("--strict", action="store_true", help="Strict state_dict loading")
     parser.add_argument("--skip-checks", action="store_true",
                         help="Skip startup sanity checks (faster launch when data is known-good)")
+    parser.add_argument("--test-set", type=str, default="test_targets",
+                        choices=["test_targets", "test_extra_targets"],
+                        help="Which test split to evaluate (default: test_targets)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -131,14 +134,18 @@ def main():
 
     # Test targets
     from utils.io import read_splits
+    test_split_key = args.test_set
     test_targets = []
     for bm in benchmarks:
         sp = data_root / bm / "splits.json"
         if sp.exists():
             splits = read_splits(sp)
-            test_targets.extend(splits.get("test_targets", []))
+            test_targets.extend(splits.get(test_split_key, []))
     test_targets = sorted(set(test_targets))
-    print(f"Test targets ({len(test_targets)}): {test_targets}")
+    if not test_targets:
+        print(f"[ERROR] No corners found for split key '{test_split_key}'")
+        sys.exit(1)
+    print(f"Test targets [{test_split_key}] ({len(test_targets)}): {test_targets}")
 
     test_ds = STADataset(data_root, benchmarks, test_targets, anchors, topo_orders)
     test_loader = DataLoader(test_ds, batch_size=1, shuffle=False,
