@@ -128,6 +128,8 @@ class GraphSAGEEncoder(nn.Module):
         use_film: bool = False,
         film_hidden: int = 128,
         film_gamma_scale: float = 0.5,
+        # Global token
+        use_global_token: bool = False,
     ):
         super().__init__()
         self.input_proj = nn.Linear(input_dim, hidden_dim)
@@ -149,6 +151,13 @@ class GraphSAGEEncoder(nn.Module):
         else:
             self.film_in = None
             self.film_layers = None
+
+        # Global token: mean-pool → shared projection → add back (zero-init for safe startup)
+        if use_global_token:
+            self.global_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+            nn.init.zeros_(self.global_proj.weight)
+        else:
+            self.global_proj = None
 
     def forward(
         self,
@@ -184,5 +193,10 @@ class GraphSAGEEncoder(nn.Module):
             # FiLM after residual
             if self.film_layers is not None and cond is not None:
                 h = self.film_layers[i](h, cond)
+
+            # Global token: broadcast graph-level summary to all nodes
+            if self.global_proj is not None:
+                g = h.mean(dim=0, keepdim=True)   # [1, D]
+                h = h + self.global_proj(g)        # [N, D]
 
         return h

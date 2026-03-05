@@ -198,6 +198,11 @@ def main():
         film_hidden=model_cfg.get("film_hidden", 128),
         film_gamma_scale=model_cfg.get("film_gamma_scale", 0.5),
         use_endpoint_residual=model_cfg.get("use_endpoint_residual", True),
+        pvt_dim=model_cfg.get("pvt_dim", 16),
+        use_dual_edge_head=model_cfg.get("use_dual_edge_head", False),
+        cell_mlp_hidden=model_cfg.get("cell_mlp_hidden", 192),
+        net_mlp_hidden=model_cfg.get("net_mlp_hidden", 128),
+        use_global_token=model_cfg.get("use_global_token", False),
     ).to(device)
 
     # Load weights

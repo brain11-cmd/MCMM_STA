@@ -296,6 +296,7 @@ def train_one_epoch(
             log_scale=out.log_scale,
             at_all=out.at_all,
             at_true=sample.at_true.to(device),
+            delta_slack=out.delta_slack,
             epoch=epoch, total_epochs=total_epochs,
         )
 
@@ -354,6 +355,7 @@ def evaluate(model, loader, criterion, normalizer, device, epoch=0, total_epochs
             log_scale=out.log_scale,
             at_all=out.at_all,
             at_true=sample.at_true.to(device),
+            delta_slack=out.delta_slack,
             epoch=epoch, total_epochs=total_epochs,
         )
         for k, v in losses.items():
@@ -449,7 +451,7 @@ def main():
     ckpt_base = Path(cfg.get("checkpoint_dir", "checkpoints"))
     bm_tag = "_".join(benchmarks)
     film_tag = "film" if use_film else "no_film"
-    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v8"
+    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v9"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Data root:   {data_root}")
@@ -551,6 +553,11 @@ def main():
         film_hidden=model_cfg.get("film_hidden", 128),
         film_gamma_scale=model_cfg.get("film_gamma_scale", 0.5),
         use_endpoint_residual=model_cfg.get("use_endpoint_residual", True),
+        pvt_dim=model_cfg.get("pvt_dim", 16),
+        use_dual_edge_head=model_cfg.get("use_dual_edge_head", False),
+        cell_mlp_hidden=model_cfg.get("cell_mlp_hidden", 192),
+        net_mlp_hidden=model_cfg.get("net_mlp_hidden", 128),
+        use_global_token=model_cfg.get("use_global_token", False),
     ).to(device)
 
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -596,6 +603,7 @@ def main():
         worst_frac=loss_cfg.get("worst_frac", 0.2),
         worst_warmup_ratio=loss_cfg.get("worst_warmup_ratio", 0.3),
         slack_loss_alpha=loss_cfg.get("slack_loss_alpha", 0.7),
+        lambda_delta=loss_cfg.get("lambda_delta", 0.0),
     )
 
     # Resume (strict=False to support adding FiLM to non-FiLM checkpoint)

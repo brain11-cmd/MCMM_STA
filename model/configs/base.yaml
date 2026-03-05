@@ -1,5 +1,5 @@
 # ============================================================================
-# Physics-Informed Multi-Anchor GNN STA — v8 Configuration
+# Physics-Informed Multi-Anchor GNN STA — v9 Configuration
 # ============================================================================
 
 seed: 42
@@ -53,6 +53,17 @@ model:
   # Endpoint residual head (absorbs STA propagation bias on deep graphs)
   use_endpoint_residual: true
 
+  # v9: PVT separable conditioning (additive decomposition: e_p + e_v + e_t)
+  pvt_dim: 16
+
+  # v9: Cell/Net dual edge head (separate MLPs for cell and net arcs)
+  use_dual_edge_head: true
+  cell_mlp_hidden: 192
+  net_mlp_hidden: 128
+
+  # v9: Global token (lightweight graph-level context injection per GNN layer)
+  use_global_token: true
+
 # ---- Training ----
 training:
   epochs: 200
@@ -94,3 +105,6 @@ loss:
   lambda_worst: 0.15
   worst_frac: 0.2
   worst_warmup_ratio: 0.3
+
+  # v9: Endpoint residual L2 regularization (prevents calibration head memorizing)
+  lambda_delta: 1.0e-3

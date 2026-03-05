@@ -1,19 +1,20 @@
 """
-Full model: Physics-Informed Multi-Anchor GNN STA (v2.4 — FiLM).
+Full model: Physics-Informed Multi-Anchor GNN STA (v3.0).
 
-FiLM conditioning (use_film=true):
-  - GNN: per-layer FiLM + input_proj FiLM (inside GraphSAGEEncoder)
-  - EdgeHead output: FiLM modulation (film_edge in full_model)
-  All FiLM layers use tanh-bounded gamma for stability.
-  Initialized to identity (zero-init) — safe to load from non-FiLM checkpoint.
+v3.0 changes:
+  - PVTEncoder: separable additive P/V/T conditioning (z_pvt = e_p + e_v + e_t)
+  - DualEdgeHead: separate cell/net MLPs (eliminates gradient interference)
+  - Global token: mean-pool → shared projection in GNN (long-range context)
+  - z_t (concat) kept for node input; z_pvt (additive) used for conditioning
 
 Architecture:
-  process_embed: Embedding(3, 8)
-  gnn:          GraphSAGEEncoder(26 -> 128, 3 layers, optional FiLM per layer)
-  film_edge:    FiLMLayer(12 -> gamma[128]+beta[128])  [only if use_film]
-  edge_head:    EdgeHead(726 -> 256 -> 256 -> 128)
-  anchor_head:  MultiAnchorHead(140 -> d_hat[E,4])
-  sta:          LevelwiseSTA (no learnable params)
+  process_embed: Embedding(3, 8)         [node input]
+  pvt_encoder:   PVTEncoder(3 → 16)      [conditioning]
+  gnn:           GraphSAGEEncoder(26 → 128, 3 layers, optional global token)
+  edge_head:     DualEdgeHead(cell: 726→192→128, net: 726→128→128)
+  anchor_head:   MultiAnchorHead(144 → d_hat[E,4])
+  sta:           LevelwiseSTA (no learnable params)
+  endpoint_res:  EndpointResidualHead(144 → delta_slack[M,2])
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import torch
 import torch.nn as nn
 
 from models.gnn import GraphSAGEEncoder
-from models.edge_head import EdgeHead
+from models.edge_head import EdgeHead, DualEdgeHead
 from models.multi_anchor import MultiAnchorHead
 from models.film import FiLMLayer
 from models.sta import LevelwiseSTA, build_sta_mask, NEG_INF
@@ -43,6 +44,41 @@ class ModelOutput:
     s_hat: torch.Tensor        # [E, K, 4]
     log_scale: torch.Tensor    # [E, K, 4]
     delta_slack: Optional[torch.Tensor] = None  # [M, 2] endpoint residual
+
+
+class PVTEncoder(nn.Module):
+    """Separable PVT condition encoder.
+
+    Produces z_pvt = e_p + e_v + e_t via additive decomposition, enforcing
+    the physical prior that process, voltage, and temperature effects on
+    delay are approximately separable.  Improves generalization to unseen
+    PVT combinations compared to flat concatenation.
+    """
+
+    def __init__(self, num_processes: int = 3, pvt_dim: int = 16):
+        super().__init__()
+        self.pvt_dim = pvt_dim
+        self.proc_embed = nn.Embedding(num_processes, pvt_dim)
+        self.v_proj = nn.Linear(1, pvt_dim)
+        self.t_proj = nn.Linear(1, pvt_dim)
+
+    def forward(self, process_id: torch.Tensor,
+                v_norm: torch.Tensor, t_norm: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            process_id: scalar or [1] long (0=ff, 1=tt, 2=ss)
+            v_norm:     scalar float (normalized voltage)
+            t_norm:     scalar float (normalized temperature)
+        Returns:
+            z_pvt: [pvt_dim] float
+        """
+        process_id = process_id.long()
+        if process_id.dim() == 0:
+            process_id = process_id.unsqueeze(0)
+        e_p = self.proc_embed(process_id)[0]      # [pvt_dim]
+        e_v = self.v_proj(v_norm.float().view(1))  # [pvt_dim]
+        e_t = self.t_proj(t_norm.float().view(1))  # [pvt_dim]
+        return e_p + e_v + e_t                     # [pvt_dim]
 
 
 class EndpointResidualHead(nn.Module):
@@ -103,6 +139,14 @@ class MultiAnchorSTAModel(nn.Module):
         film_gamma_scale: float = 0.5,
         # Endpoint residual head
         use_endpoint_residual: bool = False,
+        # v9: PVT separable conditioning
+        pvt_dim: int = 16,
+        # v9: Cell/Net dual edge head
+        use_dual_edge_head: bool = False,
+        cell_mlp_hidden: int = 192,
+        net_mlp_hidden: int = 128,
+        # v9: Global token
+        use_global_token: bool = False,
     ):
         super().__init__()
         self.K = num_anchors
@@ -110,12 +154,16 @@ class MultiAnchorSTAModel(nn.Module):
         self.d_floor = d_floor
         self.use_film = use_film
 
-        # Process embedding
+        # Process embedding (for node input concatenation — unchanged)
         self.process_embed = nn.Embedding(num_process_classes, process_embed_dim)
-        cond_dim = process_embed_dim + z_cont_dim  # 8 + 4 = 12
+        node_cond_dim = process_embed_dim + z_cont_dim  # 8 + 4 = 12
 
-        # Node input dim
-        node_input_dim = pin_static_dim + num_anchors * pin_dyn_dim + cond_dim
+        # PVT separable encoder (for conditioning: gates, FiLM, residual head)
+        self.pvt_encoder = PVTEncoder(num_process_classes, pvt_dim)
+        cond_dim = pvt_dim  # conditioning dimension for downstream modules
+
+        # Node input dim (uses node_cond_dim, NOT pvt_dim)
+        node_input_dim = pin_static_dim + num_anchors * pin_dyn_dim + node_cond_dim
 
         gnn_drop = gnn_dropout if gnn_dropout is not None else dropout
 
@@ -131,21 +179,35 @@ class MultiAnchorSTAModel(nn.Module):
             use_film=use_film,
             film_hidden=film_hidden,
             film_gamma_scale=film_gamma_scale,
+            use_global_token=use_global_token,
         )
 
-        # 2. Edge head
-        self.edge_head = EdgeHead(
-            node_dim=hidden_dim,
-            num_edge_types=2,
-            num_cell_types=num_cell_types,
-            num_pin_roles=num_pin_roles,
-            mlp_hidden=edge_mlp_hidden,
-            mlp_layers=edge_mlp_layers,
-            edge_embed_dim=hidden_dim,
-            cat_embed_dim=16,
-            num_scalars=6,
-            dropout=dropout,
-        )
+        # 2. Edge head (dual or single)
+        if use_dual_edge_head:
+            self.edge_head = DualEdgeHead(
+                node_dim=hidden_dim,
+                num_cell_types=num_cell_types,
+                num_pin_roles=num_pin_roles,
+                cell_mlp_hidden=cell_mlp_hidden,
+                net_mlp_hidden=net_mlp_hidden,
+                edge_embed_dim=hidden_dim,
+                cat_embed_dim=16,
+                num_scalars=6,
+                dropout=dropout,
+            )
+        else:
+            self.edge_head = EdgeHead(
+                node_dim=hidden_dim,
+                num_edge_types=2,
+                num_cell_types=num_cell_types,
+                num_pin_roles=num_pin_roles,
+                mlp_hidden=edge_mlp_hidden,
+                mlp_layers=edge_mlp_layers,
+                edge_embed_dim=hidden_dim,
+                cat_embed_dim=16,
+                num_scalars=6,
+                dropout=dropout,
+            )
 
         # 2b. FiLM on EdgeHead output (modulate h_e before anchor_head)
         if use_film:
@@ -153,7 +215,7 @@ class MultiAnchorSTAModel(nn.Module):
         else:
             self.film_edge = None
 
-        # 3. Multi-anchor head
+        # 3. Multi-anchor head (uses pvt cond_dim)
         self.anchor_head = MultiAnchorHead(
             edge_dim=hidden_dim,
             cond_dim=cond_dim,
@@ -166,7 +228,7 @@ class MultiAnchorSTAModel(nn.Module):
         # 4. STA
         self.sta = LevelwiseSTA(tau_sta=tau_sta, tf_interval=tf_interval)
 
-        # 5. Endpoint residual head (absorbs STA propagation bias)
+        # 5. Endpoint residual head (uses pvt cond_dim)
         if use_endpoint_residual:
             self.endpoint_residual = EndpointResidualHead(
                 hidden_dim, cond_dim, dropout=dropout,
@@ -211,17 +273,24 @@ class MultiAnchorSTAModel(nn.Module):
         E = edge_src.shape[0]
         device = pin_static.device
 
-        # ---- #2: Condition vector z_t (robust process_id + z_cont handling) ----
+        # ---- #2: Condition vectors ----
         process_id = process_id.long()
         if process_id.dim() == 0:
             process_id = process_id.unsqueeze(0)
-        proc_emb = self.process_embed(process_id)[0]  # [embed_dim]
+        proc_emb = self.process_embed(process_id)[0]  # [embed_dim=8]
 
         z_cont = z_cont.float()
         if z_cont.dim() == 2:
             assert z_cont.size(0) == 1, f"Expected z_cont batch=1, got {z_cont.shape}"
             z_cont = z_cont[0]
-        z_t = torch.cat([proc_emb, z_cont], dim=-1)  # [cond_dim=12]
+
+        # z_t: flat concat for node input (backward-compatible structure)
+        z_t = torch.cat([proc_emb, z_cont], dim=-1)  # [node_cond_dim=12]
+
+        # z_pvt: separable additive encoding for conditioning (gates, FiLM, residual)
+        v_norm = z_cont[2]   # voltage_norm
+        t_norm = z_cont[3]   # temp_norm
+        z_pvt = self.pvt_encoder(process_id, v_norm, t_norm)  # [pvt_dim]
 
         # ---- #4: Node input features (with shape checks) ----
         K = pin_dyn_anchor.shape[0]
@@ -235,7 +304,7 @@ class MultiAnchorSTAModel(nn.Module):
         node_input = torch.cat([pin_static, pin_dyn_flat, z_t_node], dim=-1)
 
         # ---- GNN (FiLM applied internally when use_film=True) ----
-        h_nodes = self.gnn(node_input, edge_src, edge_dst, cond=z_t)
+        h_nodes = self.gnn(node_input, edge_src, edge_dst, cond=z_pvt)
 
         # ---- #9: Edge scalars (z-scored required, no silent fallback) ----
         if edge_scalars_normed is not None:
@@ -266,10 +335,10 @@ class MultiAnchorSTAModel(nn.Module):
 
         # ---- FiLM on edge embeddings ----
         if self.film_edge is not None:
-            h_edges = self.film_edge(h_edges, z_t)
+            h_edges = self.film_edge(h_edges, z_pvt)
 
         # ---- Multi-anchor delay prediction ----
-        d_hat, g_e, gG, s_hat, log_scale = self.anchor_head(h_edges, z_t, d_anchor)
+        d_hat, g_e, gG, s_hat, log_scale = self.anchor_head(h_edges, z_pvt, d_anchor)
 
         # ---- #5: Physics-consistent input arrival ----
         source_mask = source_mask.bool()
@@ -305,7 +374,7 @@ class MultiAnchorSTAModel(nn.Module):
         # Endpoint residual correction (absorbs deep-graph systematic bias)
         delta_slack = None
         if self.endpoint_residual is not None:
-            delta_slack = self.endpoint_residual(h_nodes, endpoint_ids, z_t)
+            delta_slack = self.endpoint_residual(h_nodes, endpoint_ids, z_pvt)
             slack_hat = slack_sta + delta_slack
         else:
             slack_hat = slack_sta

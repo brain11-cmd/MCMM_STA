@@ -42,6 +42,7 @@ class STALoss:
         worst_frac: float = 0.2,
         worst_warmup_ratio: float = 0.3,
         slack_loss_alpha: float = 0.7,
+        lambda_delta: float = 0.0,
     ):
         self.huber_delta = huber_delta
         self.lambda_edge = lambda_edge
@@ -57,6 +58,7 @@ class STALoss:
         self.worst_frac = worst_frac
         self.worst_warmup_ratio = worst_warmup_ratio
         self.slack_loss_alpha = slack_loss_alpha
+        self.lambda_delta = lambda_delta
 
     def __call__(
         self,
@@ -72,6 +74,7 @@ class STALoss:
         log_scale: torch.Tensor,     # [E, K, 4]
         at_all: torch.Tensor = None, # [N, 2] predicted arrival (from STA)
         at_true: torch.Tensor = None, # [N, 2] ground truth arrival (Late R/F)
+        delta_slack: torch.Tensor = None, # [M, 2] endpoint residual head output
         epoch: int = 0,
         total_epochs: int = 200,
     ) -> Dict[str, torch.Tensor]:
@@ -212,6 +215,13 @@ class STALoss:
         losses["L_at"] = L_at
         losses["at_scale"] = at_scale.detach() if isinstance(at_scale, torch.Tensor) else torch.tensor(at_scale, device=device)
 
+        # ---- 8. Endpoint residual L2 regularization ----
+        if self.lambda_delta > 0 and delta_slack is not None:
+            L_delta = (delta_slack ** 2).mean()
+        else:
+            L_delta = torch.tensor(0.0, device=device)
+        losses["L_delta"] = L_delta
+
         # ---- Total ----
         total = (
             L_slack
@@ -222,6 +232,7 @@ class STALoss:
             + self.lambda_neg * L_neg
             + self.lambda_at * L_at
             + self.lambda_worst * L_worst
+            + self.lambda_delta * L_delta
         )
         losses["total"] = total
 
