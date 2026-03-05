@@ -56,7 +56,7 @@ training:
   scheduler: cosine
   patience: 0
   grad_clip: 5.0
-  save_every: 5
+  save_every: 20
   tf_interval: 20
   tf_ratio_start: 0.25
   tf_hold_frac: 0.15

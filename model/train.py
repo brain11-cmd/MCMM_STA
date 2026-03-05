@@ -370,7 +370,7 @@ def main():
     ckpt_base = Path(cfg.get("checkpoint_dir", "checkpoints"))
     bm_tag = "_".join(benchmarks)
     film_tag = "film" if use_film else "no_film"
-    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v5"
+    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v6"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Data root:   {data_root}")
@@ -427,6 +427,7 @@ def main():
         assert_slack_consistency(train_ds[0])
 
     # Model (v2.4) — vocab sizes from union of all benchmarks
+    train_cfg = cfg["training"]
     loss_cfg = cfg.get("loss", {})
     max_cell_types = max(len(bm_s.cell_type_vocab) for bm_s in train_ds._static_cache.values())
     max_pin_roles = max(len(bm_s.pin_role_vocab) for bm_s in train_ds._static_cache.values())
@@ -465,7 +466,6 @@ def main():
     print(f"\nModel parameters: {num_params:,}")
 
     # Optimizer & Scheduler
-    train_cfg = cfg["training"]
     epochs = train_cfg.get("epochs", 200)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -509,6 +509,8 @@ def main():
     # Resume (strict=False to support adding FiLM to non-FiLM checkpoint)
     start_epoch = 0
     best_metric = float("inf")
+    best_large_ever = float("inf")
+    large_tol = train_cfg.get("large_tol", 0.15)
     if args.resume:
         ckpt_data = torch.load(str(args.resume), map_location=device, weights_only=False)
         missing, unexpected = model.load_state_dict(ckpt_data["model_state_dict"], strict=False)
@@ -538,7 +540,7 @@ def main():
     tf_start = train_cfg.get("tf_ratio_start", 0.0)
     tf_hold_frac = train_cfg.get("tf_hold_frac", 0.15)
     tf_end_frac = train_cfg.get("tf_end_frac", 0.25)
-    save_every = train_cfg.get("save_every", 5)
+    save_every = train_cfg.get("save_every", 20)
     metrics_log_path = ckpt_dir / "metrics.jsonl"
 
     print(f"\n{'='*70}")
@@ -621,24 +623,37 @@ def main():
             if parts:
                 print(f"    breakdown: {' | '.join(parts)}")
 
-        # Primary metric: large_norm_mae (prioritize large benchmark quality)
-        if len(val_ds) > 0 and "large_norm_mae" in val_metrics:
-            current_metric = val_metrics["large_norm_mae"]
-        elif "macro_norm_mae" in val_metrics:
+        # Primary metric: macro_norm_mae with large constraint (方案 B)
+        # Use macro_norm_mae as primary to ensure balanced performance across
+        # all benchmark sizes. Reject candidates where large_norm_mae exceeds
+        # best-ever by more than large_tol (default 15%), preventing large
+        # benchmark regression while optimizing for overall balance.
+        if len(val_ds) > 0 and "macro_norm_mae" in val_metrics:
             current_metric = val_metrics["macro_norm_mae"]
+            current_large = val_metrics.get("large_norm_mae", float("inf"))
+            best_large_ever = min(best_large_ever, current_large)
+            large_ok = (current_large <= best_large_ever * (1.0 + large_tol))
         elif "slack_mae" in train_losses:
             current_metric = train_losses["slack_mae"]
+            large_ok = True
         else:
             current_metric = train_losses.get("total", float("inf"))
-        if current_metric < best_metric:
+            large_ok = True
+
+        if current_metric < best_metric and large_ok:
             best_metric = current_metric
             patience_counter = 0
             save_checkpoint(ckpt_dir / "best.pt", model, optimizer, epoch,
                             best_metric, norm_stats=normalizer.state_dict(),
                             extra=ckpt_extra)
-            print(f"  >> New best: large_norm_mae={best_metric:.6f}")
+            print(f"  >> New best: macro_nm={best_metric:.6f}  "
+                  f"large_nm={val_metrics.get('large_norm_mae', -1):.6f}")
         else:
             patience_counter += 1
+            if not large_ok and current_metric < best_metric:
+                print(f"  >> macro improved ({current_metric:.6f}) but "
+                      f"large constraint violated "
+                      f"({current_large:.6f} > {best_large_ever*(1+large_tol):.6f})")
 
         if (epoch + 1) % save_every == 0:
             save_checkpoint(ckpt_dir / f"epoch_{epoch}.pt", model, optimizer, epoch,
@@ -668,7 +683,7 @@ def main():
             break
 
     print(f"\n{'='*70}")
-    print(f"Training complete. Best large_norm_mae: {best_metric:.6f}")
+    print(f"Training complete. Best macro_norm_mae: {best_metric:.6f}")
     print(f"{'='*70}")
 
 
