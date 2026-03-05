@@ -218,6 +218,8 @@ def load_corner_data(
     pin_name_to_id: Dict[str, int],
     num_nodes: int,
     num_edges: int,
+    clamp_negative_delay: bool = True,
+    delay_floor: float = 0.0,
 ) -> Dict[str, np.ndarray]:
     cdir = corners_dir / corner_name
     result = {}
@@ -237,6 +239,13 @@ def load_corner_data(
     ad_path = cdir / "arc_delay.json"
     if ad_path.exists():
         delays, masks, ev = read_arc_delay_json(ad_path)
+        if clamp_negative_delay:
+            valid = (masks > 0) & (ev[:, None] > 0)
+            neg = valid & (delays < delay_floor)
+            if np.any(neg):
+                # Keep raw files untouched; project invalid negative labels to physical domain.
+                delays = delays.copy()
+                delays[neg] = delay_floor
         result["arc_delay"] = delays
         result["mask"] = masks
         result["edge_valid"] = ev
@@ -362,10 +371,14 @@ class STADataset(Dataset):
         target_corners: List[str],
         anchors: List[str],
         topo_orders: Dict[str, np.ndarray],
+        clamp_negative_delay: bool = True,
+        delay_floor: float = 0.0,
     ):
         self.data_root = Path(data_root)
         self.anchors = anchors
         self.K = len(anchors)
+        self.clamp_negative_delay = clamp_negative_delay
+        self.delay_floor = delay_floor
 
         self.samples: List[Tuple[str, str]] = []
         for bm in benchmarks:
@@ -386,7 +399,9 @@ class STADataset(Dataset):
             corners_dir = self.data_root / bm / "corners"
             for anc in anchors:
                 self._anchor_cache[(bm, anc)] = load_corner_data(
-                    corners_dir, anc, bs.pin_name_to_id, bs.num_nodes, bs.num_edges
+                    corners_dir, anc, bs.pin_name_to_id, bs.num_nodes, bs.num_edges,
+                    clamp_negative_delay=self.clamp_negative_delay,
+                    delay_floor=self.delay_floor,
                 )
 
     def __len__(self) -> int:
@@ -413,7 +428,9 @@ class STADataset(Dataset):
 
         # ---- target data ----
         tgt = load_corner_data(
-            corners_dir, tc, bs.pin_name_to_id, bs.num_nodes, bs.num_edges
+            corners_dir, tc, bs.pin_name_to_id, bs.num_nodes, bs.num_edges,
+            clamp_negative_delay=self.clamp_negative_delay,
+            delay_floor=self.delay_floor,
         )
         ep_ids, slack_true, rat_true = load_endpoint_labels(
             corners_dir, tc, bs.pin_name_to_id

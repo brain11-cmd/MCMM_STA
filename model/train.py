@@ -56,6 +56,81 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> Dict:
     return cfg
 
 
+def _collect_split_targets(data_root: Path, benchmarks) -> Dict[str, list]:
+    """Collect and de-duplicate split targets from all benchmarks."""
+    from utils.io import read_splits
+
+    split_targets = {
+        "train_targets": [],
+        "val_targets": [],
+        "test_targets": [],
+        "test_extra_targets": [],
+    }
+    for bm in benchmarks:
+        sp = data_root / bm / "splits.json"
+        if not sp.exists():
+            continue
+        splits = read_splits(sp)
+        for split_key in split_targets:
+            split_targets[split_key].extend(splits.get(split_key, []))
+
+    for split_key in split_targets:
+        split_targets[split_key] = sorted(set(split_targets[split_key]))
+    return split_targets
+
+
+def _audit_negative_delays(
+    data_root: Path,
+    benchmarks,
+    split_targets: Dict[str, list],
+    delay_floor: float = 0.0,
+) -> None:
+    """Print negative-delay stats on valid channels by split/benchmark."""
+    from utils.io import read_arc_delay_json
+
+    print("\nNegative delay audit (valid channels only):")
+    for split_key in ("train_targets", "val_targets", "test_targets", "test_extra_targets"):
+        corners = split_targets.get(split_key, [])
+        if not corners:
+            continue
+
+        split_neg = 0
+        split_valid = 0
+        print(f"  [{split_key}] corners={len(corners)}")
+        for bm in benchmarks:
+            bm_neg = 0
+            bm_valid = 0
+            bm_min = float("inf")
+            for corner in corners:
+                ad_path = data_root / bm / "corners" / corner / "arc_delay.json"
+                if not ad_path.exists():
+                    continue
+                delays, masks, edge_valid = read_arc_delay_json(ad_path)
+                valid = (masks > 0) & (edge_valid[:, None] > 0)
+                valid_count = int(valid.sum())
+                if valid_count == 0:
+                    continue
+
+                vals = delays[valid]
+                bm_valid += valid_count
+                bm_neg += int((vals < delay_floor).sum())
+                bm_min = min(bm_min, float(vals.min()))
+
+            if bm_valid > 0:
+                split_valid += bm_valid
+                split_neg += bm_neg
+                print(
+                    f"    {bm:<12} neg={bm_neg}/{bm_valid} "
+                    f"({(bm_neg / bm_valid):.4%}) min={bm_min:.6f}"
+                )
+
+        if split_valid > 0:
+            print(
+                f"    TOTAL        neg={split_neg}/{split_valid} "
+                f"({(split_neg / split_valid):.4%})"
+            )
+
+
 # ============================================================================
 # Forward helper (v2: new interface)
 # ============================================================================
@@ -362,6 +437,10 @@ def main():
     seed_everything(cfg.get("seed", 42))
 
     data_root = Path(cfg["data_root"])
+    data_cfg = cfg.get("data", {})
+    clamp_negative_delay = data_cfg.get("clamp_negative_delay", True)
+    delay_floor = float(data_cfg.get("delay_floor", 0.0))
+    audit_negative_delay = data_cfg.get("audit_negative_delay", True)
     benchmarks = cfg["benchmarks"]
     anchors = cfg["anchors"]
     # Auto-name checkpoint dir: checkpoints/{benchmarks}_{film|no_film}/
@@ -370,7 +449,7 @@ def main():
     ckpt_base = Path(cfg.get("checkpoint_dir", "checkpoints"))
     bm_tag = "_".join(benchmarks)
     film_tag = "film" if use_film else "no_film"
-    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v7"
+    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v8"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Data root:   {data_root}")
@@ -386,22 +465,34 @@ def main():
         topo_orders = run_all_checks(data_root, benchmarks, anchors)
 
     # Splits
-    from utils.io import read_splits
-    train_targets, val_targets = [], []
-    for bm in benchmarks:
-        sp = data_root / bm / "splits.json"
-        if sp.exists():
-            splits = read_splits(sp)
-            train_targets.extend(splits.get("train_targets", []))
-            val_targets.extend(splits.get("val_targets", []))
-    train_targets = sorted(set(train_targets))
-    val_targets = sorted(set(val_targets))
+    split_targets = _collect_split_targets(data_root, benchmarks)
+    train_targets = split_targets["train_targets"]
+    val_targets = split_targets["val_targets"]
     print(f"\nTrain targets ({len(train_targets)}): {train_targets}")
     print(f"Val targets ({len(val_targets)}):   {val_targets}")
+    print(
+        f"Delay clamp: clamp_negative_delay={clamp_negative_delay}, "
+        f"delay_floor={delay_floor}"
+    )
+    if audit_negative_delay:
+        _audit_negative_delays(
+            data_root=data_root,
+            benchmarks=benchmarks,
+            split_targets=split_targets,
+            delay_floor=delay_floor,
+        )
 
     # Datasets
-    train_ds = STADataset(data_root, benchmarks, train_targets, anchors, topo_orders)
-    val_ds = STADataset(data_root, benchmarks, val_targets, anchors, topo_orders)
+    train_ds = STADataset(
+        data_root, benchmarks, train_targets, anchors, topo_orders,
+        clamp_negative_delay=clamp_negative_delay,
+        delay_floor=delay_floor,
+    )
+    val_ds = STADataset(
+        data_root, benchmarks, val_targets, anchors, topo_orders,
+        clamp_negative_delay=clamp_negative_delay,
+        delay_floor=delay_floor,
+    )
     print(f"\nTrain samples: {len(train_ds)}")
     print(f"Val samples:   {len(val_ds)}")
 
@@ -496,6 +587,7 @@ def main():
         lambda_kl=loss_cfg.get("lambda_kl", 0.01),
         lambda_ent=loss_cfg.get("lambda_ent", 0.001),
         lambda_scale=loss_cfg.get("lambda_scale", 0.0001),
+        neg_delay_mode=loss_cfg.get("neg_delay_mode", "bounded"),
         d_floor=loss_cfg.get("d_floor", 0.1),
         asinh_scale=loss_cfg.get("asinh_scale", 1.0),
         lambda_neg=loss_cfg.get("lambda_neg", 1e-4),
@@ -541,13 +633,25 @@ def main():
     tf_hold_frac = train_cfg.get("tf_hold_frac", 0.15)
     tf_end_frac = train_cfg.get("tf_end_frac", 0.25)
     save_every = train_cfg.get("save_every", 20)
+    topk_best_keep = max(int(train_cfg.get("topk_best_keep", 1)), 1)
+    topk_records = []
     metrics_log_path = ckpt_dir / "metrics.jsonl"
+
+    # EMA smoothing for checkpoint selection — prevents single-epoch flukes
+    # from misleading early stopping on small validation sets.
+    ema_alpha = float(train_cfg.get("ema_alpha", 0.0))
+    ema_metric = None
+    best_warmup = int(train_cfg.get("best_warmup_epochs", 0))
 
     print(f"\n{'='*70}")
     print(f"Starting training: {epochs} epochs, lr={train_cfg.get('lr', 3e-4)}")
     print(f"  lambda_edge: {lambda_edge_init} -> {lambda_edge_final} (over {schedule_frac*100:.0f}%)")
     print(f"  lambda_at:   {lambda_at_init} -> {lambda_at_final} (over {schedule_frac*100:.0f}%)")
     print(f"  TF:          {tf_start} -> 0 (by {tf_end_frac*100:.0f}% of epochs)")
+    if ema_alpha > 0:
+        print(f"  EMA alpha:   {ema_alpha} (smoothed metric for checkpoint selection)")
+    if best_warmup > 0:
+        print(f"  Best warmup: {best_warmup} epochs (no checkpoint saved before this)")
     print(f"{'='*70}\n")
 
     for epoch in range(start_epoch, epochs):
@@ -623,35 +727,67 @@ def main():
             if parts:
                 print(f"    breakdown: {' | '.join(parts)}")
 
-        # Primary metric: macro_norm_mae with large constraint (方案 B)
-        # Use macro_norm_mae as primary to ensure balanced performance across
-        # all benchmark sizes. Reject candidates where large_norm_mae exceeds
-        # best-ever by more than large_tol (default 15%), preventing large
-        # benchmark regression while optimizing for overall balance.
+        # Primary metric: macro_norm_mae with large constraint
         if len(val_ds) > 0 and "macro_norm_mae" in val_metrics:
-            current_metric = val_metrics["macro_norm_mae"]
+            raw_metric = val_metrics["macro_norm_mae"]
             current_large = val_metrics.get("large_norm_mae", float("inf"))
             best_large_ever = min(best_large_ever, current_large)
             large_ok = (current_large <= best_large_ever * (1.0 + large_tol))
         elif "slack_mae" in train_losses:
-            current_metric = train_losses["slack_mae"]
+            raw_metric = train_losses["slack_mae"]
             large_ok = True
         else:
-            current_metric = train_losses.get("total", float("inf"))
+            raw_metric = train_losses.get("total", float("inf"))
             large_ok = True
 
-        if current_metric < best_metric and large_ok:
+        # EMA smoothing: prevents single-epoch flukes from triggering new best
+        if ema_alpha > 0 and len(val_ds) > 0:
+            if ema_metric is None:
+                ema_metric = raw_metric
+            else:
+                ema_metric = ema_alpha * raw_metric + (1.0 - ema_alpha) * ema_metric
+            current_metric = ema_metric
+        else:
+            current_metric = raw_metric
+
+        # Warmup: don't consider checkpoints before best_warmup epochs
+        in_warmup = (epoch < best_warmup)
+
+        # Top-k checkpoint saving (respects warmup)
+        if len(val_ds) > 0 and large_ok and not in_warmup:
+            worst_kept = topk_records[-1]["metric"] if len(topk_records) == topk_best_keep else float("inf")
+            if len(topk_records) < topk_best_keep or current_metric < worst_kept:
+                topk_path = ckpt_dir / f"best_topk_ep{epoch}_macro{current_metric:.6f}.pt"
+                save_checkpoint(
+                    topk_path, model, optimizer, epoch, min(best_metric, current_metric),
+                    norm_stats=normalizer.state_dict(), extra=ckpt_extra,
+                )
+                topk_records.append({"metric": current_metric, "epoch": epoch, "path": topk_path})
+                topk_records.sort(key=lambda x: x["metric"])
+                while len(topk_records) > topk_best_keep:
+                    removed = topk_records.pop(-1)
+                    if removed["path"].exists():
+                        removed["path"].unlink()
+                topk_msg = ", ".join(
+                    [f"ep{rec['epoch']}={rec['metric']:.6f}" for rec in topk_records]
+                )
+                print(f"  >> Top-{topk_best_keep}: {topk_msg}")
+
+        # Best checkpoint saving (respects warmup + EMA)
+        if current_metric < best_metric and large_ok and not in_warmup:
             best_metric = current_metric
             patience_counter = 0
             save_checkpoint(ckpt_dir / "best.pt", model, optimizer, epoch,
                             best_metric, norm_stats=normalizer.state_dict(),
                             extra=ckpt_extra)
-            print(f"  >> New best: macro_nm={best_metric:.6f}  "
+            ema_tag = f" (ema={ema_metric:.6f})" if ema_alpha > 0 else ""
+            print(f"  >> New best: macro_nm={best_metric:.6f}{ema_tag}  "
                   f"large_nm={val_metrics.get('large_norm_mae', -1):.6f}")
         else:
-            patience_counter += 1
-            if not large_ok and current_metric < best_metric:
-                print(f"  >> macro improved ({current_metric:.6f}) but "
+            if not in_warmup:
+                patience_counter += 1
+            if not large_ok and raw_metric < best_metric:
+                print(f"  >> macro improved ({raw_metric:.6f}) but "
                       f"large constraint violated "
                       f"({current_large:.6f} > {best_large_ever*(1+large_tol):.6f})")
 
@@ -668,6 +804,8 @@ def main():
             "lambda_edge_eff": round(criterion.lambda_edge, 4),
             "lambda_at_eff": round(criterion.lambda_at, 4),
         }
+        if ema_alpha > 0 and ema_metric is not None:
+            log_entry["ema_macro_norm_mae"] = round(float(ema_metric), 6)
         for k, v in train_losses.items():
             val = v.item() if hasattr(v, 'item') else v
             if isinstance(val, (int, float)):

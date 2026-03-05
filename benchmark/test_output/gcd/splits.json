@@ -7,7 +7,6 @@
   "train_targets": [
     "ff0p85vn40c",
     "ff0p85v25c",
-    "ff0p95vn40c",
     "ff0p95v125c",
     "ff1p16v25c",
     "ss0p7vn40c",
@@ -21,19 +20,20 @@
   ],
   "val_targets": [
     "ff0p85v125c",
+    "ff0p95vn40c",
+    "ss0p7v125c",
     "ss0p95v25c",
+    "tt0p78v25c",
     "tt1p05vn40c"
   ],
   "test_targets": [
     "ff0p95v25c",
     "ss0p75vn40c",
     "ss0p95v125c",
-    "tt0p78v25c",
     "tt1p05v125c"
   ],
   "test_extra_targets": [
     "ff1p16v125c",
-    "ss0p7v125c",
     "tt0p78v125c"
   ],
   "all_corners": [

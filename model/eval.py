@@ -116,6 +116,9 @@ def main():
     seed_everything(cfg.get("seed", 42))
 
     data_root = Path(cfg["data_root"])
+    data_cfg = cfg.get("data", {})
+    clamp_negative_delay = data_cfg.get("clamp_negative_delay", True)
+    delay_floor = float(data_cfg.get("delay_floor", 0.0))
     benchmarks = cfg["benchmarks"]
     anchors = cfg["anchors"]
     model_cfg = cfg.get("model", {})
@@ -125,6 +128,7 @@ def main():
     print(f"Benchmarks:  {benchmarks}")
     print(f"Checkpoint:  {args.checkpoint}")
     print(f"Device:      {device}")
+    print(f"Delay clamp: clamp_negative_delay={clamp_negative_delay}, delay_floor={delay_floor}")
 
     if args.skip_checks:
         print("[INFO] Skipping sanity checks (--skip-checks)")
@@ -147,7 +151,11 @@ def main():
         sys.exit(1)
     print(f"Test targets [{test_split_key}] ({len(test_targets)}): {test_targets}")
 
-    test_ds = STADataset(data_root, benchmarks, test_targets, anchors, topo_orders)
+    test_ds = STADataset(
+        data_root, benchmarks, test_targets, anchors, topo_orders,
+        clamp_negative_delay=clamp_negative_delay,
+        delay_floor=delay_floor,
+    )
     test_loader = DataLoader(test_ds, batch_size=1, shuffle=False,
                              collate_fn=collate_sta, num_workers=0)
 

@@ -33,6 +33,7 @@ class STALoss:
         lambda_kl: float = 0.01,
         lambda_ent: float = 0.001,
         lambda_scale: float = 0.0001,
+        neg_delay_mode: str = "bounded",
         d_floor: float = 0.1,
         asinh_scale: float = 1.0,
         lambda_neg: float = 1e-4,
@@ -47,6 +48,7 @@ class STALoss:
         self.lambda_kl = lambda_kl
         self.lambda_ent = lambda_ent
         self.lambda_scale = lambda_scale
+        self.neg_delay_mode = neg_delay_mode
         self.d_floor = d_floor
         self.asinh_scale = asinh_scale
         self.lambda_neg = lambda_neg
@@ -171,7 +173,15 @@ class STALoss:
 
         # ---- 6. Negative delay penalty (squared — stronger barrier) ----
         if self.lambda_neg > 0 and valid_count > 0:
-            excess_neg = torch.relu(-(d_hat + self.d_floor))
+            if self.neg_delay_mode == "strict":
+                excess_neg = torch.relu(-d_hat)
+            elif self.neg_delay_mode == "bounded":
+                excess_neg = torch.relu(-(d_hat + self.d_floor))
+            else:
+                raise ValueError(
+                    f"Unknown neg_delay_mode={self.neg_delay_mode!r}, "
+                    "expected one of {'strict', 'bounded'}"
+                )
             L_neg = (excess_neg[valid] ** 2).mean()
         else:
             L_neg = torch.tensor(0.0, device=device)

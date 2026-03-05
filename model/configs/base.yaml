@@ -1,11 +1,18 @@
 # ============================================================================
-# Physics-Informed Multi-Anchor GNN STA — v7 Configuration
+# Physics-Informed Multi-Anchor GNN STA — v8 Configuration
 # ============================================================================
 
 seed: 42
 data_root: "../benchmark/test_output"
 checkpoint_dir: "checkpoints"
 num_workers: 8
+
+data:
+  # Runtime-only label cleaning (raw files remain unchanged).
+  clamp_negative_delay: true
+  delay_floor: 0.0
+  # Print per-split/per-benchmark negative-delay ratio at startup.
+  audit_negative_delay: true
 
 benchmarks:
   - spi
@@ -55,6 +62,9 @@ training:
   warmup_epochs: 5
   scheduler: cosine
   patience: 50
+  topk_best_keep: 3
+  best_warmup_epochs: 15
+  ema_alpha: 0.3
   grad_clip: 5.0
   save_every: 20
   tf_interval: 20
@@ -71,8 +81,8 @@ loss:
   lambda_ent: 0.001
   lambda_scale: 0.0001
 
-  neg_delay_mode: bounded
-  d_floor: 0.1
+  neg_delay_mode: strict
+  d_floor: 0.0
   asinh_scale: 1.0
   lambda_neg: 1.0e-4
   lambda_at: 0.05

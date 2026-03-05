@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# PowerShell
+*.ps1.bak
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*.err
+
+# Build artifacts
+build/
+*.o
+*.a
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+desktop.ini
+
+# Temporary extraction
+temp_extract/
+
+# Backup directories
+.backup_*/
+
+# Test files (keep only essential)
+test_*.tcl
+!test_aes.tcl
+
+# JSON temporary files
+temp_*.json
+
+# Optimization results (can regenerate)
+optimization_results.csv
+clock_period_results.txt
+
+# Large library files (optional - comment out if you want to include them)
+# BUFLIB/lib_*/*.lib
+
+# OpenTimer build artifacts
+opentimer/OpenTimer/build/
+opentimer/OpenTimer/bin/
+opentimer/OpenTimer/.git/
+opentimer/OpenTimer/.backup_*/
