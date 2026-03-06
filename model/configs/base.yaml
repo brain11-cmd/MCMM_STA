@@ -46,9 +46,12 @@ model:
   residual_alpha: 0.5
 
   # FiLM conditioning
-  use_film: false
+  use_film: true
+  film_mode: head_only        # "head_only": GNN stays corner-agnostic, FiLM only on edge head
+                               # "full": FiLM on input_proj + every GNN layer + edge head
   film_hidden: 128
   film_gamma_scale: 0.5
+  film_warmup_epochs: 10      # FiLM strength ramps 0→1 over this many epochs
 
   # Endpoint residual head (absorbs STA propagation bias on deep graphs)
   use_endpoint_residual: true
@@ -86,8 +89,8 @@ training:
 # ---- Loss ----
 loss:
   huber_delta: 1.0
-  lambda_edge: 0.3
-  lambda_edge_init: 0.45
+  lambda_edge: 0.15
+  lambda_edge_init: 0.30
   lambda_kl: 0.01
   lambda_ent: 0.001
   lambda_scale: 0.0001
@@ -102,9 +105,12 @@ loss:
   slack_loss_alpha: 0.7
 
   # Critical-endpoint optimization (disjoint: L_slack covers non-topk, L_worst covers topk)
-  lambda_worst: 0.15
+  lambda_worst: 0.25
   worst_frac: 0.2
   worst_warmup_ratio: 0.3
 
   # v9: Endpoint residual L2 regularization (prevents calibration head memorizing)
   lambda_delta: 1.0e-3
+
+  # FiLM γ/β L2 regularization (active after film_warmup_epochs)
+  lambda_film: 5.0e-4

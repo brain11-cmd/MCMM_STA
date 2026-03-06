@@ -1,16 +1,17 @@
 """
-GraphSAGE with LogSumExp aggregation (v2.3 — AMP-safe + FiLM).
+GraphSAGE with LogSumExp aggregation (v2.4 — AMP-safe + FiLM modes).
 
 Each layer:
   1. Aggregate neighbor features using numerically-stable LogSumExp
   2. Concatenate [self_feat, agg_feat]
   3. Linear + LayerNorm + ReLU + Dropout
-  4. (Optional) FiLM modulation: h = h * (1 + γ(z)) + β(z)
+  4. (Optional) FiLM modulation: h = h * (1 + α·γ(z)) + α·β(z)
 
-v2.3 changes:
-  - FiLM support: cond vector passed to forward, per-layer FiLM + input FiLM
-  - FiLM self-contained in GNN (no external pre-computation needed)
-  - Backward-compatible: cond=None disables FiLM (same as v2.2)
+v2.4 changes:
+  - film_mode parameter: "full" (FiLM on input + every layer) or
+    "head_only" (no FiLM inside GNN — keeps backbone corner-agnostic)
+  - Strength parameter forwarded to FiLM layers (for warmup)
+  - Backward-compatible: cond=None or use_film=False disables FiLM
 """
 
 from typing import Optional
@@ -108,9 +109,10 @@ class GraphSAGEEncoder(nn.Module):
     """
     Multi-layer GraphSAGE encoder with residual connections and optional FiLM.
 
-    When use_film=True and cond is provided:
-      - After input_proj: FiLM modulation (film_in)
-      - After each GNN layer + residual: FiLM modulation (film_layers[i])
+    film_mode controls where FiLM is applied:
+      "full":      FiLM on input_proj + after each GNN layer (original behavior)
+      "head_only": No FiLM inside GNN — backbone stays corner-agnostic.
+                   FiLM is only used externally (e.g. on edge head output).
 
     When use_film=False or cond=None: pure GraphSAGE (backward-compatible).
     """
@@ -126,6 +128,7 @@ class GraphSAGEEncoder(nn.Module):
         # FiLM parameters
         cond_dim: int = 0,
         use_film: bool = False,
+        film_mode: str = "full",
         film_hidden: int = 128,
         film_gamma_scale: float = 0.5,
         # Global token
@@ -135,14 +138,16 @@ class GraphSAGEEncoder(nn.Module):
         self.input_proj = nn.Linear(input_dim, hidden_dim)
         self.residual_alpha = residual_alpha
         self.use_film = use_film
+        self.film_mode = film_mode
 
         self.layers = nn.ModuleList([
             GraphSAGELayer(hidden_dim, hidden_dim, tau=tau, dropout=dropout)
             for _ in range(num_layers)
         ])
 
-        # FiLM layers (only created when use_film=True)
-        if use_film and cond_dim > 0:
+        # FiLM layers: only created when use_film=True AND film_mode="full"
+        gnn_needs_film = use_film and cond_dim > 0 and film_mode == "full"
+        if gnn_needs_film:
             self.film_in = FiLMLayer(cond_dim, hidden_dim, film_hidden, film_gamma_scale)
             self.film_layers = nn.ModuleList([
                 FiLMLayer(cond_dim, hidden_dim, film_hidden, film_gamma_scale)
@@ -165,13 +170,15 @@ class GraphSAGEEncoder(nn.Module):
         edge_src: torch.Tensor,
         edge_dst: torch.Tensor,
         cond: Optional[torch.Tensor] = None,
+        film_strength: float = 1.0,
     ) -> torch.Tensor:
         """
         Args:
-            x:        [N, input_dim]
-            edge_src: [E]
-            edge_dst: [E]
-            cond:     [cond_dim] condition vector for FiLM (optional)
+            x:             [N, input_dim]
+            edge_src:      [E]
+            edge_dst:      [E]
+            cond:          [cond_dim] condition vector for FiLM (optional)
+            film_strength: scalar in [0, 1] for FiLM warmup
         Returns:
             h: [N, hidden_dim]
         """
@@ -181,18 +188,18 @@ class GraphSAGEEncoder(nn.Module):
         if cond is not None:
             cond = cond.to(device=h.device, dtype=h.dtype)
 
-        # FiLM on input projection
+        # FiLM on input projection (only in "full" mode)
         if self.film_in is not None and cond is not None:
-            h = self.film_in(h, cond)
+            h = self.film_in(h, cond, strength=film_strength)
 
         alpha = min(max(float(self.residual_alpha), 0.0), 1.0)
         for i, layer in enumerate(self.layers):
             h_new = layer(h, edge_src, edge_dst)
             h = alpha * h + (1.0 - alpha) * h_new
 
-            # FiLM after residual
+            # FiLM after residual (only in "full" mode)
             if self.film_layers is not None and cond is not None:
-                h = self.film_layers[i](h, cond)
+                h = self.film_layers[i](h, cond, strength=film_strength)
 
             # Global token: broadcast graph-level summary to all nodes
             if self.global_proj is not None:

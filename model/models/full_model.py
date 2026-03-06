@@ -1,17 +1,18 @@
 """
-Full model: Physics-Informed Multi-Anchor GNN STA (v3.0).
+Full model: Physics-Informed Multi-Anchor GNN STA (v3.1).
 
-v3.0 changes:
-  - PVTEncoder: separable additive P/V/T conditioning (z_pvt = e_p + e_v + e_t)
-  - DualEdgeHead: separate cell/net MLPs (eliminates gradient interference)
-  - Global token: mean-pool → shared projection in GNN (long-range context)
-  - z_t (concat) kept for node input; z_pvt (additive) used for conditioning
+v3.1 changes:
+  - film_mode: "full" (FiLM everywhere) or "head_only" (FiLM only on edge head,
+    GNN backbone stays corner-agnostic — better slack generalization)
+  - film_strength: external warmup coefficient forwarded to all FiLM layers
+  - film_reg: model collects mean(γ² + β²) from active FiLM layers for L_film
 
 Architecture:
   process_embed: Embedding(3, 8)         [node input]
   pvt_encoder:   PVTEncoder(3 → 16)      [conditioning]
   gnn:           GraphSAGEEncoder(26 → 128, 3 layers, optional global token)
   edge_head:     DualEdgeHead(cell: 726→192→128, net: 726→128→128)
+  film_edge:     FiLMLayer (when use_film=True, modulates h_e before anchor_head)
   anchor_head:   MultiAnchorHead(144 → d_hat[E,4])
   sta:           LevelwiseSTA (no learnable params)
   endpoint_res:  EndpointResidualHead(144 → delta_slack[M,2])
@@ -44,6 +45,7 @@ class ModelOutput:
     s_hat: torch.Tensor        # [E, K, 4]
     log_scale: torch.Tensor    # [E, K, 4]
     delta_slack: Optional[torch.Tensor] = None  # [M, 2] endpoint residual
+    film_reg: float = 0.0      # mean(γ² + β²) across active FiLM layers
 
 
 class PVTEncoder(nn.Module):
@@ -135,6 +137,7 @@ class MultiAnchorSTAModel(nn.Module):
         d_floor: float = 0.0,
         # FiLM parameters
         use_film: bool = False,
+        film_mode: str = "full",
         film_hidden: int = 128,
         film_gamma_scale: float = 0.5,
         # Endpoint residual head
@@ -153,6 +156,7 @@ class MultiAnchorSTAModel(nn.Module):
         self.pin_dyn_dim = pin_dyn_dim
         self.d_floor = d_floor
         self.use_film = use_film
+        self.film_mode = film_mode
 
         # Process embedding (for node input concatenation — unchanged)
         self.process_embed = nn.Embedding(num_process_classes, process_embed_dim)
@@ -167,7 +171,9 @@ class MultiAnchorSTAModel(nn.Module):
 
         gnn_drop = gnn_dropout if gnn_dropout is not None else dropout
 
-        # 1. GNN (FiLM layers live inside GNN when use_film=True)
+        # 1. GNN — film_mode controls whether FiLM lives inside GNN
+        #    "head_only": GNN stays corner-agnostic (no internal FiLM)
+        #    "full": FiLM on input_proj + every GNN layer (original behavior)
         self.gnn = GraphSAGEEncoder(
             input_dim=node_input_dim,
             hidden_dim=hidden_dim,
@@ -177,6 +183,7 @@ class MultiAnchorSTAModel(nn.Module):
             residual_alpha=residual_alpha,
             cond_dim=cond_dim if use_film else 0,
             use_film=use_film,
+            film_mode=film_mode,
             film_hidden=film_hidden,
             film_gamma_scale=film_gamma_scale,
             use_global_token=use_global_token,
@@ -267,6 +274,7 @@ class MultiAnchorSTAModel(nn.Module):
         sta_edge_keep: Optional[torch.Tensor] = None,  # [E] bool — cycle cuts
         at_true: Optional[torch.Tensor] = None,
         tf_ratio: float = 0.0,
+        film_strength: float = 1.0,
     ) -> ModelOutput:
 
         N = pin_static.shape[0]
@@ -303,8 +311,9 @@ class MultiAnchorSTAModel(nn.Module):
         #     FiLM provides additional adaptive modulation on top
         node_input = torch.cat([pin_static, pin_dyn_flat, z_t_node], dim=-1)
 
-        # ---- GNN (FiLM applied internally when use_film=True) ----
-        h_nodes = self.gnn(node_input, edge_src, edge_dst, cond=z_pvt)
+        # ---- GNN (FiLM applied internally when use_film=True and film_mode="full") ----
+        h_nodes = self.gnn(node_input, edge_src, edge_dst, cond=z_pvt,
+                           film_strength=film_strength)
 
         # ---- #9: Edge scalars (z-scored required, no silent fallback) ----
         if edge_scalars_normed is not None:
@@ -335,7 +344,7 @@ class MultiAnchorSTAModel(nn.Module):
 
         # ---- FiLM on edge embeddings ----
         if self.film_edge is not None:
-            h_edges = self.film_edge(h_edges, z_pvt)
+            h_edges = self.film_edge(h_edges, z_pvt, strength=film_strength)
 
         # ---- Multi-anchor delay prediction ----
         d_hat, g_e, gG, s_hat, log_scale = self.anchor_head(h_edges, z_pvt, d_anchor)
@@ -379,8 +388,24 @@ class MultiAnchorSTAModel(nn.Module):
         else:
             slack_hat = slack_sta
 
+        # Collect FiLM regularization: mean(γ² + β²) across all active FiLM layers
+        film_reg = 0.0
+        if self.use_film:
+            film_regs = []
+            # GNN internal FiLM layers (only present in "full" mode)
+            if self.gnn.film_in is not None:
+                film_regs.append(self.gnn.film_in.cached_reg())
+            if self.gnn.film_layers is not None:
+                for fl in self.gnn.film_layers:
+                    film_regs.append(fl.cached_reg())
+            # Edge FiLM layer
+            if self.film_edge is not None:
+                film_regs.append(self.film_edge.cached_reg())
+            if film_regs:
+                film_reg = sum(film_regs) / len(film_regs)
+
         return ModelOutput(
             d_hat=d_hat, at_all=at_all, at_ep=at_ep, slack_hat=slack_hat,
             g_e=g_e, gG=gG, s_hat=s_hat, log_scale=log_scale,
-            delta_slack=delta_slack,
+            delta_slack=delta_slack, film_reg=film_reg,
         )

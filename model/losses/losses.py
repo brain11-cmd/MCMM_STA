@@ -1,5 +1,5 @@
 """
-STA Loss (v5 — scale-matched L_at, disjoint L_slack/L_worst).
+STA Loss (v6 — FiLM regularization + scale-matched L_at, disjoint L_slack/L_worst).
 
 Components:
   L_slack:  Per-sample-normalized Huber on non-worst endpoints
@@ -10,13 +10,11 @@ Components:
   L_scale:  L2 on raw log_scale
   L_neg:    Squared penalty for d_hat < -d_floor
   L_at:     Per-sample-normalized arrival time supervision (dense signal)
+  L_film:   L2 on FiLM γ/β parameters (prevents corner-specific overfitting)
 
-v5 changes over v4:
-  - L_at now uses per-sample P95 normalization (same philosophy as L_slack),
-    preventing arrival-time gradients from dominating when AT range >> slack range.
-  - L_slack and L_worst are disjoint: L_slack = mean(non-top-k), L_worst = mean(top-k).
-    No endpoint gets double-counted. lambda_worst directly controls the extra
-    weight on worst endpoints, making tuning more predictable.
+v6 changes over v5:
+  - L_film: mean(γ² + β²) regularization on FiLM layers, weighted by lambda_film.
+    Prevents FiLM from learning overly strong corner-specific biases (especially ss).
 """
 
 import math
@@ -43,6 +41,7 @@ class STALoss:
         worst_warmup_ratio: float = 0.3,
         slack_loss_alpha: float = 0.7,
         lambda_delta: float = 0.0,
+        lambda_film: float = 0.0,
     ):
         self.huber_delta = huber_delta
         self.lambda_edge = lambda_edge
@@ -59,6 +58,7 @@ class STALoss:
         self.worst_warmup_ratio = worst_warmup_ratio
         self.slack_loss_alpha = slack_loss_alpha
         self.lambda_delta = lambda_delta
+        self.lambda_film = lambda_film
 
     def __call__(
         self,
@@ -75,6 +75,7 @@ class STALoss:
         at_all: torch.Tensor = None, # [N, 2] predicted arrival (from STA)
         at_true: torch.Tensor = None, # [N, 2] ground truth arrival (Late R/F)
         delta_slack: torch.Tensor = None, # [M, 2] endpoint residual head output
+        film_reg: float = 0.0,          # mean(γ² + β²) from FiLM layers
         epoch: int = 0,
         total_epochs: int = 200,
     ) -> Dict[str, torch.Tensor]:
@@ -222,6 +223,10 @@ class STALoss:
             L_delta = torch.tensor(0.0, device=device)
         losses["L_delta"] = L_delta
 
+        # ---- 9. FiLM γ/β L2 regularization ----
+        L_film = torch.tensor(film_reg, device=device)
+        losses["L_film"] = L_film
+
         # ---- Total ----
         total = (
             L_slack
@@ -233,6 +238,7 @@ class STALoss:
             + self.lambda_at * L_at
             + self.lambda_worst * L_worst
             + self.lambda_delta * L_delta
+            + self.lambda_film * L_film
         )
         losses["total"] = total
 

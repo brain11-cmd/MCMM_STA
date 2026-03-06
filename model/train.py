@@ -156,6 +156,7 @@ def _forward_sample(
     normalizer: FeatureNormalizer,
     device: str,
     tf_ratio: float = 0.0,
+    film_strength: float = 1.0,
 ) -> ModelOutput:
     pin_static = sample.pin_static.to(device)
     if normalizer.is_ready:
@@ -200,6 +201,7 @@ def _forward_sample(
         sta_edge_keep=sample.sta_edge_keep.to(device),
         at_true=at_true_dev,
         tf_ratio=tf_ratio,
+        film_strength=film_strength,
     )
 
 
@@ -272,6 +274,7 @@ def assert_slack_consistency(
 def train_one_epoch(
     model, loader, criterion, optimizer, normalizer,
     device, grad_clip, epoch, total_epochs, tf_ratio=0.0,
+    film_strength=1.0,
 ) -> Dict[str, float]:
     model.train()
     total_losses = {}
@@ -282,7 +285,8 @@ def train_one_epoch(
     pbar = tqdm(loader, desc=f"Epoch {epoch} [train]", leave=False)
     for sample in pbar:
         optimizer.zero_grad()
-        out = _forward_sample(model, sample, normalizer, device, tf_ratio=tf_ratio)
+        out = _forward_sample(model, sample, normalizer, device,
+                              tf_ratio=tf_ratio, film_strength=film_strength)
 
         losses = criterion(
             slack_hat=out.slack_hat,
@@ -297,6 +301,7 @@ def train_one_epoch(
             at_all=out.at_all,
             at_true=sample.at_true.to(device),
             delta_slack=out.delta_slack,
+            film_reg=out.film_reg,
             epoch=epoch, total_epochs=total_epochs,
         )
 
@@ -356,6 +361,7 @@ def evaluate(model, loader, criterion, normalizer, device, epoch=0, total_epochs
             at_all=out.at_all,
             at_true=sample.at_true.to(device),
             delta_slack=out.delta_slack,
+            film_reg=out.film_reg,
             epoch=epoch, total_epochs=total_epochs,
         )
         for k, v in losses.items():
@@ -445,13 +451,17 @@ def main():
     audit_negative_delay = data_cfg.get("audit_negative_delay", True)
     benchmarks = cfg["benchmarks"]
     anchors = cfg["anchors"]
-    # Auto-name checkpoint dir: checkpoints/{benchmarks}_{film|no_film}/
+    # Auto-name checkpoint dir: checkpoints/{benchmarks}_{film_mode}/
     model_cfg = cfg.get("model", {})
     use_film = model_cfg.get("use_film", False)
     ckpt_base = Path(cfg.get("checkpoint_dir", "checkpoints"))
     bm_tag = "_".join(benchmarks)
-    film_tag = "film" if use_film else "no_film"
-    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v9"
+    if use_film:
+        _fm = model_cfg.get("film_mode", "full")
+        film_tag = f"film_{_fm}"
+    else:
+        film_tag = "no_film"
+    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v10"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Data root:   {data_root}")
@@ -527,6 +537,7 @@ def main():
     num_cell_types = max_cell_types + 1
     num_pin_roles = max_pin_roles + 1
     ckpt_extra = {"num_cell_types": num_cell_types, "num_pin_roles": num_pin_roles}
+    film_mode = model_cfg.get("film_mode", "full")
     model = MultiAnchorSTAModel(
         num_anchors=len(anchors),
         pin_static_dim=2,
@@ -550,6 +561,7 @@ def main():
         residual_alpha=model_cfg.get("residual_alpha", 0.5),
         d_floor=loss_cfg.get("d_floor", 0.0),
         use_film=use_film,
+        film_mode=film_mode,
         film_hidden=model_cfg.get("film_hidden", 128),
         film_gamma_scale=model_cfg.get("film_gamma_scale", 0.5),
         use_endpoint_residual=model_cfg.get("use_endpoint_residual", True),
@@ -587,7 +599,7 @@ def main():
     elif sched_type == "step":
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
 
-    # Loss (v2.4: with scale reg + neg delay)
+    # Loss (v3: with scale reg + neg delay + FiLM reg)
     criterion = STALoss(
         huber_delta=loss_cfg.get("huber_delta", 1.0),
         lambda_edge=loss_cfg.get("lambda_edge", 0.3),
@@ -604,6 +616,7 @@ def main():
         worst_warmup_ratio=loss_cfg.get("worst_warmup_ratio", 0.3),
         slack_loss_alpha=loss_cfg.get("slack_loss_alpha", 0.7),
         lambda_delta=loss_cfg.get("lambda_delta", 0.0),
+        lambda_film=loss_cfg.get("lambda_film", 0.0),
     )
 
     # Resume (strict=False to support adding FiLM to non-FiLM checkpoint)
@@ -651,16 +664,28 @@ def main():
     ema_metric = None
     best_warmup = int(train_cfg.get("best_warmup_epochs", 0))
 
+    # FiLM warmup + regularization schedule
+    film_warmup_epochs = int(model_cfg.get("film_warmup_epochs", 0))
+    lambda_film_final = loss_cfg.get("lambda_film", 0.0)
+
     print(f"\n{'='*70}")
     print(f"Starting training: {epochs} epochs, lr={train_cfg.get('lr', 3e-4)}")
     print(f"  lambda_edge: {lambda_edge_init} -> {lambda_edge_final} (over {schedule_frac*100:.0f}%)")
     print(f"  lambda_at:   {lambda_at_init} -> {lambda_at_final} (over {schedule_frac*100:.0f}%)")
     print(f"  TF:          {tf_start} -> 0 (by {tf_end_frac*100:.0f}% of epochs)")
+    if use_film:
+        print(f"  FiLM mode:   {model_cfg.get('film_mode', 'full')}")
+        if film_warmup_epochs > 0:
+            print(f"  FiLM warmup: {film_warmup_epochs} epochs (strength 0→1)")
+        if lambda_film_final > 0:
+            print(f"  lambda_film: {lambda_film_final} (active after FiLM warmup)")
     if ema_alpha > 0:
         print(f"  EMA alpha:   {ema_alpha} (smoothed metric for checkpoint selection)")
     if best_warmup > 0:
         print(f"  Best warmup: {best_warmup} epochs (no checkpoint saved before this)")
     print(f"{'='*70}\n")
+
+    film_strength = 1.0  # default; updated per-epoch when film_warmup_epochs > 0
 
     for epoch in range(start_epoch, epochs):
         t0 = time.time()
@@ -710,13 +735,19 @@ def main():
         l_slack = train_losses.get('L_slack', 0)
         l_at = train_losses.get('L_at', 0)
         l_worst = train_losses.get('L_worst', 0)
+
+        film_info = ""
+        if use_film:
+            l_film = train_losses.get('L_film', 0)
+            film_info = f" film={l_film:.5f} fs={film_strength:.2f}"
+
         print(
             f"Epoch {epoch:3d} | "
             f"train_loss={train_losses.get('total', 0):.5f} "
             f"(slack={l_slack:.5f} "
             f"edge={train_losses.get('L_edge', 0):.5f} "
             f"worst={l_worst:.5f} "
-            f"at={l_at:.5f}) | "
+            f"at={l_at:.5f}{film_info}) | "
             f"val_large_nm={large_nm:.5f} "
             f"val_macro_nm={macro_nm:.5f} "
             f"val_edge_mae={val_metrics.get('edge_mae', -1):.5f} | "
@@ -812,6 +843,9 @@ def main():
             "lambda_edge_eff": round(criterion.lambda_edge, 4),
             "lambda_at_eff": round(criterion.lambda_at, 4),
         }
+        if use_film:
+            log_entry["film_strength"] = round(film_strength, 4)
+            log_entry["lambda_film_eff"] = round(criterion.lambda_film, 6)
         if ema_alpha > 0 and ema_metric is not None:
             log_entry["ema_macro_norm_mae"] = round(float(ema_metric), 6)
         for k, v in train_losses.items():
