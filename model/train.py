@@ -714,9 +714,22 @@ def main():
             criterion.lambda_edge = lambda_edge_final
             criterion.lambda_at = lambda_at_final
 
+        # FiLM strength warmup: linear 0→1 over film_warmup_epochs
+        if film_warmup_epochs > 0 and epoch < film_warmup_epochs:
+            film_strength = (epoch + 1) / film_warmup_epochs
+        else:
+            film_strength = 1.0
+
+        # FiLM regularization: off during warmup, on after
+        if film_warmup_epochs > 0 and epoch < film_warmup_epochs:
+            criterion.lambda_film = 0.0
+        else:
+            criterion.lambda_film = lambda_film_final
+
         train_losses = train_one_epoch(
             model, train_loader, criterion, optimizer,
             normalizer, device, grad_clip, epoch, epochs, tf_ratio=tf_ratio,
+            film_strength=film_strength,
         )
 
         val_metrics = {}
