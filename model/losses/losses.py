@@ -75,7 +75,7 @@ class STALoss:
         at_all: torch.Tensor = None, # [N, 2] predicted arrival (from STA)
         at_true: torch.Tensor = None, # [N, 2] ground truth arrival (Late R/F)
         delta_slack: torch.Tensor = None, # [M, 2] endpoint residual head output
-        film_reg: float = 0.0,          # mean(γ² + β²) from FiLM layers
+        film_reg: torch.Tensor = None,  # mean(γ² + β²) from FiLM layers (live tensor)
         epoch: int = 0,
         total_epochs: int = 200,
     ) -> Dict[str, torch.Tensor]:
@@ -224,7 +224,10 @@ class STALoss:
         losses["L_delta"] = L_delta
 
         # ---- 9. FiLM γ/β L2 regularization ----
-        L_film = torch.tensor(film_reg, device=device)
+        if film_reg is not None:
+            L_film = film_reg.to(device)
+        else:
+            L_film = torch.tensor(0.0, device=device)
         losses["L_film"] = L_film
 
         # ---- Total ----

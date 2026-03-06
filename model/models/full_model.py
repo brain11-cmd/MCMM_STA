@@ -45,7 +45,7 @@ class ModelOutput:
     s_hat: torch.Tensor        # [E, K, 4]
     log_scale: torch.Tensor    # [E, K, 4]
     delta_slack: Optional[torch.Tensor] = None  # [M, 2] endpoint residual
-    film_reg: float = 0.0      # mean(γ² + β²) across active FiLM layers
+    film_reg: Optional[torch.Tensor] = None    # mean(γ² + β²) across active FiLM layers (live tensor)
 
 
 class PVTEncoder(nn.Module):
@@ -389,7 +389,8 @@ class MultiAnchorSTAModel(nn.Module):
             slack_hat = slack_sta
 
         # Collect FiLM regularization: mean(γ² + β²) across all active FiLM layers
-        film_reg = 0.0
+        # Returns a live tensor to preserve gradients for L_film backprop
+        film_reg = torch.tensor(0.0, device=device)
         if self.use_film:
             film_regs = []
             # GNN internal FiLM layers (only present in "full" mode)
@@ -402,7 +403,7 @@ class MultiAnchorSTAModel(nn.Module):
             if self.film_edge is not None:
                 film_regs.append(self.film_edge.cached_reg())
             if film_regs:
-                film_reg = sum(film_regs) / len(film_regs)
+                film_reg = torch.stack(film_regs).mean()
 
         return ModelOutput(
             d_hat=d_hat, at_all=at_all, at_ep=at_ep, slack_hat=slack_hat,

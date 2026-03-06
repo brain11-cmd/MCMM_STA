@@ -16,6 +16,8 @@ Usage:
     reg = film.cached_reg()  # mean(γ² + β²)
 """
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
 
@@ -52,7 +54,7 @@ class FiLMLayer(nn.Module):
         nn.init.zeros_(self.mlp[-1].weight)
         nn.init.zeros_(self.mlp[-1].bias)
 
-        self._cached_reg: float = 0.0
+        self._cached_reg: Optional[torch.Tensor] = None
 
     def forward(
         self,
@@ -75,8 +77,8 @@ class FiLMLayer(nn.Module):
         gamma_raw, beta = params.chunk(2, dim=-1)        # [..., feat_dim] each
         gamma = self.gamma_scale * torch.tanh(gamma_raw) # bounded ∈ [-scale, +scale]
 
-        # Cache γ² + β² for regularization (detached scalar, no graph overhead)
-        self._cached_reg = (gamma.detach() ** 2 + beta.detach() ** 2).mean().item()
+        # Cache γ² + β² as live tensor (keeps gradient path for L_film regularization)
+        self._cached_reg = (gamma ** 2 + beta ** 2).mean()
 
         # Apply strength scaling
         gamma = strength * gamma
@@ -89,6 +91,8 @@ class FiLMLayer(nn.Module):
 
         return feat * (1.0 + gamma) + beta
 
-    def cached_reg(self) -> float:
-        """Return mean(γ² + β²) from the last forward pass (detached scalar)."""
+    def cached_reg(self) -> torch.Tensor:
+        """Return mean(γ² + β²) from the last forward pass (live tensor with gradients)."""
+        if self._cached_reg is None:
+            return torch.tensor(0.0)
         return self._cached_reg
