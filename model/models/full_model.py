@@ -1,17 +1,18 @@
 """
-Full model: Physics-Informed Multi-Anchor GNN STA (v3.2).
+Full model: Physics-Informed Multi-Anchor GNN STA (v3.3).
+
+v3.3 changes:
+  - EndpointResidualHead: graph-context gate replaces raw concatenation.
+    g_graph_raw (256) → proj (32) → gated by sigmoid([h_ep, z_pvt] → 32).
+    Gate bias init = -1.0 (sigmoid ≈ 0.27) for conservative start.
+    MLP input: [h_ep, z_pvt, g_gated] = 128+16+32 = 176.
 
 v3.2 changes:
   - EndpointResidualHead now receives global graph context:
     g_graph = [mean(h_nodes), max(h_nodes)]  →  input = [h_ep, z_pvt, g_graph]
-    This lets each endpoint see circuit-wide statistics, not just its local
-    GNN embedding.  Controlled by use_global_pool (default True).
 
 v3.1 changes:
-  - film_mode: "full" (FiLM everywhere) or "head_only" (FiLM only on edge head,
-    GNN backbone stays corner-agnostic — better slack generalization)
-  - film_strength: external warmup coefficient forwarded to all FiLM layers
-  - film_reg: model collects mean(γ² + β²) from active FiLM layers for L_film
+  - film_mode / film_strength / film_reg for FiLM conditioning
 
 Architecture:
   process_embed: Embedding(3, 8)         [node input]
@@ -21,7 +22,7 @@ Architecture:
   film_edge:     FiLMLayer (when use_film=True, modulates h_e before anchor_head)
   anchor_head:   MultiAnchorHead(144 → d_hat[E,4])
   sta:           LevelwiseSTA (no learnable params)
-  endpoint_res:  EndpointResidualHead(400 → delta_slack[M,2])  [128+16+256 with global pool]
+  endpoint_res:  EndpointResidualHead(176 → delta_slack[M,2])  [128+16+32 gated pool]
 """
 
 from __future__ import annotations
@@ -97,15 +98,36 @@ class EndpointResidualHead(nn.Module):
     systematic bias (deep-graph error accumulation) will develop non-zero
     corrections over time.
 
-    v3.2: Concatenates a global graph summary g_graph = [mean(h), max(h)]
-    so each endpoint sees circuit-wide context, not just its local embedding.
+    v3.3: Graph-context gate —
+      1. g_graph_raw = [mean(h), max(h)]           (256-dim)
+      2. g_proj = proj(g_graph_raw)                 (32-dim)
+      3. alpha  = sigmoid(gate([h_ep, z_pvt]))      (32-dim, per-endpoint)
+      4. g_gated = alpha * g_proj                   (32-dim)
+      5. MLP input = [h_ep, z_pvt, g_gated]         (176-dim)
+    Gate bias initialized to -1.0 so sigmoid starts at ~0.27, keeping global
+    context conservative early in training.
     """
 
     def __init__(self, hidden_dim: int, cond_dim: int, dropout: float = 0.0,
-                 use_global_pool: bool = True):
+                 use_global_pool: bool = True, proj_dim: int = 32):
         super().__init__()
         self.use_global_pool = use_global_pool
-        graph_dim = 2 * hidden_dim if use_global_pool else 0
+
+        if use_global_pool:
+            graph_raw_dim = 2 * hidden_dim                         # 256
+            self.graph_proj = nn.Sequential(
+                nn.Linear(graph_raw_dim, proj_dim),
+                nn.LayerNorm(proj_dim),
+                nn.ReLU(),
+            )
+            self.graph_gate = nn.Linear(hidden_dim + cond_dim, proj_dim)
+            nn.init.constant_(self.graph_gate.bias, -1.0)
+            graph_dim = proj_dim
+        else:
+            self.graph_proj = None
+            self.graph_gate = None
+            graph_dim = 0
+
         in_dim = hidden_dim + cond_dim + graph_dim
         self.mlp = nn.Sequential(
             nn.Linear(in_dim, hidden_dim // 2),
@@ -124,9 +146,13 @@ class EndpointResidualHead(nn.Module):
         if self.use_global_pool:
             g_mean = h_nodes.mean(dim=0)                       # [hidden_dim]
             g_max = h_nodes.max(dim=0).values                  # [hidden_dim]
-            g_graph = torch.cat([g_mean, g_max], dim=-1)       # [2*hidden_dim]
-            g_ep = g_graph.unsqueeze(0).expand(h_ep.size(0), -1)  # [M, 2*hidden_dim]
-            return self.mlp(torch.cat([h_ep, z_ep, g_ep], dim=-1))
+            g_raw = torch.cat([g_mean, g_max], dim=-1)         # [2*hidden_dim]
+            g_proj = self.graph_proj(g_raw)                    # [proj_dim]
+            g_proj = g_proj.unsqueeze(0).expand(h_ep.size(0), -1)  # [M, proj_dim]
+            ep_ctx = torch.cat([h_ep, z_ep], dim=-1)           # [M, hidden+cond]
+            alpha = torch.sigmoid(self.graph_gate(ep_ctx))     # [M, proj_dim]
+            g_gated = alpha * g_proj                           # [M, proj_dim]
+            return self.mlp(torch.cat([h_ep, z_ep, g_gated], dim=-1))
         return self.mlp(torch.cat([h_ep, z_ep], dim=-1))
 
 
