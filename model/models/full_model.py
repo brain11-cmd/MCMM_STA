@@ -1,5 +1,11 @@
 """
-Full model: Physics-Informed Multi-Anchor GNN STA (v3.1).
+Full model: Physics-Informed Multi-Anchor GNN STA (v3.2).
+
+v3.2 changes:
+  - EndpointResidualHead now receives global graph context:
+    g_graph = [mean(h_nodes), max(h_nodes)]  →  input = [h_ep, z_pvt, g_graph]
+    This lets each endpoint see circuit-wide statistics, not just its local
+    GNN embedding.  Controlled by use_global_pool (default True).
 
 v3.1 changes:
   - film_mode: "full" (FiLM everywhere) or "head_only" (FiLM only on edge head,
@@ -15,7 +21,7 @@ Architecture:
   film_edge:     FiLMLayer (when use_film=True, modulates h_e before anchor_head)
   anchor_head:   MultiAnchorHead(144 → d_hat[E,4])
   sta:           LevelwiseSTA (no learnable params)
-  endpoint_res:  EndpointResidualHead(144 → delta_slack[M,2])
+  endpoint_res:  EndpointResidualHead(400 → delta_slack[M,2])  [128+16+256 with global pool]
 """
 
 from __future__ import annotations
@@ -90,12 +96,19 @@ class EndpointResidualHead(nn.Module):
     physics-based STA dominate early training.  Only endpoints with persistent
     systematic bias (deep-graph error accumulation) will develop non-zero
     corrections over time.
+
+    v3.2: Concatenates a global graph summary g_graph = [mean(h), max(h)]
+    so each endpoint sees circuit-wide context, not just its local embedding.
     """
 
-    def __init__(self, hidden_dim: int, cond_dim: int, dropout: float = 0.0):
+    def __init__(self, hidden_dim: int, cond_dim: int, dropout: float = 0.0,
+                 use_global_pool: bool = True):
         super().__init__()
+        self.use_global_pool = use_global_pool
+        graph_dim = 2 * hidden_dim if use_global_pool else 0
+        in_dim = hidden_dim + cond_dim + graph_dim
         self.mlp = nn.Sequential(
-            nn.Linear(hidden_dim + cond_dim, hidden_dim // 2),
+            nn.Linear(in_dim, hidden_dim // 2),
             nn.LayerNorm(hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(dropout) if dropout > 0 else nn.Identity(),
@@ -106,8 +119,14 @@ class EndpointResidualHead(nn.Module):
 
     def forward(self, h_nodes: torch.Tensor, endpoint_ids: torch.Tensor,
                 z_t: torch.Tensor) -> torch.Tensor:
-        h_ep = h_nodes[endpoint_ids]
-        z_ep = z_t.unsqueeze(0).expand(h_ep.size(0), -1)
+        h_ep = h_nodes[endpoint_ids]                           # [M, hidden_dim]
+        z_ep = z_t.unsqueeze(0).expand(h_ep.size(0), -1)      # [M, cond_dim]
+        if self.use_global_pool:
+            g_mean = h_nodes.mean(dim=0)                       # [hidden_dim]
+            g_max = h_nodes.max(dim=0).values                  # [hidden_dim]
+            g_graph = torch.cat([g_mean, g_max], dim=-1)       # [2*hidden_dim]
+            g_ep = g_graph.unsqueeze(0).expand(h_ep.size(0), -1)  # [M, 2*hidden_dim]
+            return self.mlp(torch.cat([h_ep, z_ep, g_ep], dim=-1))
         return self.mlp(torch.cat([h_ep, z_ep], dim=-1))
 
 
