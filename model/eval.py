@@ -195,6 +195,7 @@ def main():
         residual_alpha=model_cfg.get("residual_alpha", 0.5),
         d_floor=loss_cfg.get("d_floor", 0.0),
         use_film=use_film,
+        film_mode=model_cfg.get("film_mode", "full"),
         film_hidden=model_cfg.get("film_hidden", 128),
         film_gamma_scale=model_cfg.get("film_gamma_scale", 0.5),
         use_endpoint_residual=model_cfg.get("use_endpoint_residual", True),
