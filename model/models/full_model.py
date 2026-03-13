@@ -1,6 +1,9 @@
 """
 Full model: Physics-Informed Multi-Anchor GNN STA (v3.3).
 
+v3.4 changes:
+  - FiLMLayer: scale-only (no beta). h' = h * (1 + strength·γ), avoids corner shift bias.
+
 v3.3 changes:
   - EndpointResidualHead: graph-context gate replaces raw concatenation.
     g_graph_raw (256) → proj (32) → gated by sigmoid([h_ep, z_pvt] → 32).
@@ -19,7 +22,7 @@ Architecture:
   pvt_encoder:   PVTEncoder(3 → 16)      [conditioning]
   gnn:           GraphSAGEEncoder(26 → 128, 3 layers, optional global token)
   edge_head:     DualEdgeHead(cell: 726→192→128, net: 726→128→128)
-  film_edge:     FiLMLayer (when use_film=True, modulates h_e before anchor_head)
+  film_edge:     FiLMLayer v2 (scale-only, no beta) when use_film=True
   anchor_head:   MultiAnchorHead(144 → d_hat[E,4])
   sta:           LevelwiseSTA (no learnable params)
   endpoint_res:  EndpointResidualHead(176 → delta_slack[M,2])  [128+16+32 gated pool]
