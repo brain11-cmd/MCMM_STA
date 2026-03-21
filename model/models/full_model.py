@@ -1,5 +1,10 @@
 """
-Full model: Physics-Informed Multi-Anchor GNN STA (v3.3).
+Full model: Physics-Informed Multi-Anchor GNN STA (v3.5).
+
+v3.5 changes (v14):
+  - EndpointResidualHead: endpoint-aware pooling.
+    g_graph_raw = [mean(h_all), max(h_all), mean(h_endpoint)]  (384-dim)
+    → proj (32) → gated → MLP input unchanged at 176-dim.
 
 v3.4 changes:
   - FiLMLayer: scale-only (no beta). h' = h * (1 + strength·γ), avoids corner shift bias.
@@ -101,12 +106,12 @@ class EndpointResidualHead(nn.Module):
     systematic bias (deep-graph error accumulation) will develop non-zero
     corrections over time.
 
-    v3.3: Graph-context gate —
-      1. g_graph_raw = [mean(h), max(h)]           (256-dim)
-      2. g_proj = proj(g_graph_raw)                 (32-dim)
-      3. alpha  = sigmoid(gate([h_ep, z_pvt]))      (32-dim, per-endpoint)
-      4. g_gated = alpha * g_proj                   (32-dim)
-      5. MLP input = [h_ep, z_pvt, g_gated]         (176-dim)
+    v3.5: Endpoint-aware pooling —
+      1. g_graph_raw = [mean(h_all), max(h_all), mean(h_ep)]  (384-dim)
+      2. g_proj = proj(g_graph_raw)                            (32-dim)
+      3. alpha  = sigmoid(gate([h_ep, z_pvt]))                 (32-dim, per-endpoint)
+      4. g_gated = alpha * g_proj                              (32-dim)
+      5. MLP input = [h_ep, z_pvt, g_gated]                    (176-dim)
     Gate bias initialized to -1.0 so sigmoid starts at ~0.27, keeping global
     context conservative early in training.
     """
@@ -117,7 +122,7 @@ class EndpointResidualHead(nn.Module):
         self.use_global_pool = use_global_pool
 
         if use_global_pool:
-            graph_raw_dim = 2 * hidden_dim                         # 256
+            graph_raw_dim = 3 * hidden_dim                         # 384
             self.graph_proj = nn.Sequential(
                 nn.Linear(graph_raw_dim, proj_dim),
                 nn.LayerNorm(proj_dim),
@@ -148,8 +153,9 @@ class EndpointResidualHead(nn.Module):
         z_ep = z_t.unsqueeze(0).expand(h_ep.size(0), -1)      # [M, cond_dim]
         if self.use_global_pool:
             g_mean = h_nodes.mean(dim=0)                       # [hidden_dim]
-            g_max = h_nodes.max(dim=0).values                  # [hidden_dim]
-            g_raw = torch.cat([g_mean, g_max], dim=-1)         # [2*hidden_dim]
+            g_max  = h_nodes.max(dim=0).values                 # [hidden_dim]
+            g_ep_pool = h_nodes[endpoint_ids].mean(dim=0)      # [hidden_dim]
+            g_raw = torch.cat([g_mean, g_max, g_ep_pool], dim=-1)  # [3*hidden_dim]
             g_proj = self.graph_proj(g_raw)                    # [proj_dim]
             g_proj = g_proj.unsqueeze(0).expand(h_ep.size(0), -1)  # [M, proj_dim]
             ep_ctx = torch.cat([h_ep, z_ep], dim=-1)           # [M, hidden+cond]
