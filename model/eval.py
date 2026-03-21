@@ -173,6 +173,24 @@ def main():
                      or ds_max_pr + 1)
     print(f"Vocab: num_cell_types={num_cell_types}, num_pin_roles={num_pin_roles}")
 
+    # film_mode: checkpoint metadata > state_dict keys > path hint > config
+    film_mode = ckpt.get("film_mode")
+    if film_mode is None:
+        sd = ckpt.get("model_state_dict", {})
+        has_gnn_film = any(
+            k.startswith("gnn.film_in") or k.startswith("gnn.film_layers")
+            for k in sd
+        )
+        if has_gnn_film:
+            film_mode = "full"
+        elif any(k.startswith("film_edge") for k in sd):
+            film_mode = "head_only"
+    if film_mode is None and "head_only" in args.checkpoint:
+        film_mode = "head_only"
+    if film_mode is None:
+        film_mode = model_cfg.get("film_mode", "full")
+    print(f"film_mode: {film_mode}")
+
     # Model
     use_film = model_cfg.get("use_film", False)
     model = MultiAnchorSTAModel(
@@ -195,7 +213,7 @@ def main():
         residual_alpha=model_cfg.get("residual_alpha", 0.5),
         d_floor=loss_cfg.get("d_floor", 0.0),
         use_film=use_film,
-        film_mode=model_cfg.get("film_mode", "full"),
+        film_mode=film_mode,
         film_hidden=model_cfg.get("film_hidden", 128),
         film_gamma_scale=model_cfg.get("film_gamma_scale", 0.5),
         use_endpoint_residual=model_cfg.get("use_endpoint_residual", True),

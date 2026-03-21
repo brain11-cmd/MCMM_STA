@@ -461,7 +461,7 @@ def main():
         film_tag = f"film_{_fm}"
     else:
         film_tag = "no_film"
-    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v13"
+    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v14"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Data root:   {data_root}")
@@ -536,8 +536,12 @@ def main():
     max_pin_roles = max(len(bm_s.pin_role_vocab) for bm_s in train_ds._static_cache.values())
     num_cell_types = max_cell_types + 1
     num_pin_roles = max_pin_roles + 1
-    ckpt_extra = {"num_cell_types": num_cell_types, "num_pin_roles": num_pin_roles}
     film_mode = model_cfg.get("film_mode", "full")
+    ckpt_extra = {
+        "num_cell_types": num_cell_types,
+        "num_pin_roles": num_pin_roles,
+        "film_mode": film_mode,
+    }
     model = MultiAnchorSTAModel(
         num_anchors=len(anchors),
         pin_static_dim=2,
