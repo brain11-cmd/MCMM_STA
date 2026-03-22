@@ -461,7 +461,7 @@ def main():
         film_tag = f"film_{_fm}"
     else:
         film_tag = "no_film"
-    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v14"
+    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v15"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Data root:   {data_root}")

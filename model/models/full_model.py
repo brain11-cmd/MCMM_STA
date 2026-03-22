@@ -1,5 +1,11 @@
 """
-Full model: Physics-Informed Multi-Anchor GNN STA (v3.5).
+Full model: Physics-Informed Multi-Anchor GNN STA (v3.6).
+
+v3.6 changes (v15):
+  - EndpointResidualHead: graph-structure-aware suppression gate on endpoint pool.
+    α_ep = sigmoid(Linear([z_pvt, log1p(N), log1p(M), M/N]))  ∈ (0,1)
+    g_ep_pool = α_ep · mean(h_endpoint)      (suppression-only, never amplifies)
+    Bias init +3.0 (sigmoid≈0.953), weight init zeros → near-identity at start.
 
 v3.5 changes (v14):
   - EndpointResidualHead: endpoint-aware pooling.
@@ -35,6 +41,7 @@ Architecture:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -106,14 +113,15 @@ class EndpointResidualHead(nn.Module):
     systematic bias (deep-graph error accumulation) will develop non-zero
     corrections over time.
 
-    v3.5: Endpoint-aware pooling —
-      1. g_graph_raw = [mean(h_all), max(h_all), mean(h_ep)]  (384-dim)
-      2. g_proj = proj(g_graph_raw)                            (32-dim)
-      3. alpha  = sigmoid(gate([h_ep, z_pvt]))                 (32-dim, per-endpoint)
-      4. g_gated = alpha * g_proj                              (32-dim)
-      5. MLP input = [h_ep, z_pvt, g_gated]                    (176-dim)
-    Gate bias initialized to -1.0 so sigmoid starts at ~0.27, keeping global
-    context conservative early in training.
+    v3.6: Graph-structure-aware suppression gate on endpoint pool —
+      0. α_ep = sigmoid(ep_pool_gate([z_pvt, log1p(N), log1p(M), M/N]))  scalar ∈ (0,1)
+         g_ep_pool = α_ep · mean(h_ep)   (suppression-only, never amplifies)
+         ep_pool_gate: weight=0, bias=+3.0 → sigmoid≈0.953, near-identity at start.
+      1. g_graph_raw = [mean(h_all), max(h_all), g_ep_pool]    (384-dim)
+      2. g_proj = proj(g_graph_raw)                             (32-dim)
+      3. alpha  = sigmoid(gate([h_ep, z_pvt]))                  (32-dim, per-endpoint)
+      4. g_gated = alpha * g_proj                               (32-dim)
+      5. MLP input = [h_ep, z_pvt, g_gated]                     (176-dim)
     """
 
     def __init__(self, hidden_dim: int, cond_dim: int, dropout: float = 0.0,
@@ -130,10 +138,18 @@ class EndpointResidualHead(nn.Module):
             )
             self.graph_gate = nn.Linear(hidden_dim + cond_dim, proj_dim)
             nn.init.constant_(self.graph_gate.bias, -1.0)
+
+            # v15: suppression gate on endpoint pool — α_ep ∈ (0, 1)
+            # input: [z_pvt(cond_dim), log1p(N), log1p(M), M/N]
+            self.ep_pool_gate = nn.Linear(cond_dim + 3, 1)
+            nn.init.zeros_(self.ep_pool_gate.weight)
+            nn.init.constant_(self.ep_pool_gate.bias, 3.0)
+
             graph_dim = proj_dim
         else:
             self.graph_proj = None
             self.graph_gate = None
+            self.ep_pool_gate = None
             graph_dim = 0
 
         in_dim = hidden_dim + cond_dim + graph_dim
@@ -154,7 +170,19 @@ class EndpointResidualHead(nn.Module):
         if self.use_global_pool:
             g_mean = h_nodes.mean(dim=0)                       # [hidden_dim]
             g_max  = h_nodes.max(dim=0).values                 # [hidden_dim]
-            g_ep_pool = h_nodes[endpoint_ids].mean(dim=0)      # [hidden_dim]
+            g_ep_raw = h_nodes[endpoint_ids].mean(dim=0)       # [hidden_dim]
+
+            # v15: suppression gate — α_ep ∈ (0,1), conditioned on PVT + graph scale
+            N = h_nodes.shape[0]
+            M = endpoint_ids.shape[0]
+            gate_feats = torch.tensor(
+                [math.log1p(N), math.log1p(M), M / max(N, 1)],
+                device=z_t.device, dtype=z_t.dtype,
+            )
+            gate_in = torch.cat([z_t, gate_feats])             # [cond_dim + 3]
+            alpha_ep = torch.sigmoid(self.ep_pool_gate(gate_in))  # [1]
+            g_ep_pool = alpha_ep * g_ep_raw                    # [hidden_dim]
+
             g_raw = torch.cat([g_mean, g_max, g_ep_pool], dim=-1)  # [3*hidden_dim]
             g_proj = self.graph_proj(g_raw)                    # [proj_dim]
             g_proj = g_proj.unsqueeze(0).expand(h_ep.size(0), -1)  # [M, proj_dim]
