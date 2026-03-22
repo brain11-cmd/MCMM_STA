@@ -274,7 +274,7 @@ def assert_slack_consistency(
 def train_one_epoch(
     model, loader, criterion, optimizer, normalizer,
     device, grad_clip, epoch, total_epochs, tf_ratio=0.0,
-    film_strength=1.0,
+    film_strength=1.0, ss_reweight_factor=1.0,
 ) -> Dict[str, float]:
     model.train()
     total_losses = {}
@@ -306,6 +306,15 @@ def train_one_epoch(
         )
 
         loss = losses["total"]
+
+        # v16: late-stage ss reweighting — boost L_slack + L_at for ss samples
+        is_ss = (sample.process_id.long().item() == 2)
+        if is_ss and ss_reweight_factor > 1.0:
+            extra = (ss_reweight_factor - 1.0) * (
+                losses["L_slack"] + criterion.lambda_at * losses["L_at"]
+            )
+            loss = loss + extra
+
         if torch.isnan(loss) or torch.isinf(loss):
             print(f"  [WARN] NaN/Inf loss at epoch {epoch}, skipping")
             continue
@@ -461,7 +470,7 @@ def main():
         film_tag = f"film_{_fm}"
     else:
         film_tag = "no_film"
-    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v14"
+    ckpt_dir = ckpt_base / f"{bm_tag}_{film_tag}_v16"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Data root:   {data_root}")
@@ -672,6 +681,11 @@ def main():
     film_warmup_epochs = int(model_cfg.get("film_warmup_epochs", 0))
     lambda_film_final = loss_cfg.get("lambda_film", 0.0)
 
+    # v16: late-stage ss reweighting schedule
+    ss_rw_start = int(train_cfg.get("ss_reweight_start", epochs))
+    ss_rw_end = int(train_cfg.get("ss_reweight_end", epochs))
+    ss_rw_factor = float(train_cfg.get("ss_reweight_factor", 1.0))
+
     print(f"\n{'='*70}")
     print(f"Starting training: {epochs} epochs, lr={train_cfg.get('lr', 3e-4)}")
     print(f"  lambda_edge: {lambda_edge_init} -> {lambda_edge_final} (over {schedule_frac*100:.0f}%)")
@@ -683,6 +697,9 @@ def main():
             print(f"  FiLM warmup: {film_warmup_epochs} epochs (strength 0→1)")
         if lambda_film_final > 0:
             print(f"  lambda_film: {lambda_film_final} (active after FiLM warmup)")
+    if ss_rw_factor > 1.0:
+        print(f"  SS reweight: {ss_rw_factor:.1f}x on L_slack+L_at, "
+              f"ramp epoch {ss_rw_start}→{ss_rw_end}")
     if ema_alpha > 0:
         print(f"  EMA alpha:   {ema_alpha} (smoothed metric for checkpoint selection)")
     if best_warmup > 0:
@@ -730,10 +747,20 @@ def main():
         else:
             criterion.lambda_film = lambda_film_final
 
+        # v16: ss reweight factor — smooth ramp from 1.0 to ss_rw_factor
+        if ss_rw_factor > 1.0 and epoch >= ss_rw_start:
+            if epoch >= ss_rw_end:
+                cur_ss_rw = ss_rw_factor
+            else:
+                t = (epoch - ss_rw_start) / max(ss_rw_end - ss_rw_start, 1)
+                cur_ss_rw = 1.0 + (ss_rw_factor - 1.0) * t
+        else:
+            cur_ss_rw = 1.0
+
         train_losses = train_one_epoch(
             model, train_loader, criterion, optimizer,
             normalizer, device, grad_clip, epoch, epochs, tf_ratio=tf_ratio,
-            film_strength=film_strength,
+            film_strength=film_strength, ss_reweight_factor=cur_ss_rw,
         )
 
         val_metrics = {}
@@ -758,13 +785,17 @@ def main():
             l_film = train_losses.get('L_film', 0)
             film_info = f" film={l_film:.5f} fs={film_strength:.2f}"
 
+        ss_info = ""
+        if cur_ss_rw > 1.0:
+            ss_info = f" ss_rw={cur_ss_rw:.2f}"
+
         print(
             f"Epoch {epoch:3d} | "
             f"train_loss={train_losses.get('total', 0):.5f} "
             f"(slack={l_slack:.5f} "
             f"edge={train_losses.get('L_edge', 0):.5f} "
             f"worst={l_worst:.5f} "
-            f"at={l_at:.5f}{film_info}) | "
+            f"at={l_at:.5f}{film_info}{ss_info}) | "
             f"val_large_nm={large_nm:.5f} "
             f"val_macro_nm={macro_nm:.5f} "
             f"val_edge_mae={val_metrics.get('edge_mae', -1):.5f} | "
@@ -782,6 +813,12 @@ def main():
                     parts.append(f"{bm_name}={val_metrics[nm_key]:.4f}")
             if parts:
                 print(f"    breakdown: {' | '.join(parts)}")
+            # v16: corner-family breakdown (key for monitoring ss reweight effect)
+            ff_nm = val_metrics.get("ff_norm_mae", -1)
+            tt_nm = val_metrics.get("tt_norm_mae", -1)
+            ss_nm = val_metrics.get("ss_norm_mae", -1)
+            print(f"    corners:   ff={ff_nm:.5f} | tt={tt_nm:.5f} | ss={ss_nm:.5f} | "
+                  f"macro={macro_nm:.5f}")
 
         # Primary metric: macro_norm_mae with large constraint
         if len(val_ds) > 0 and "macro_norm_mae" in val_metrics:
@@ -863,6 +900,8 @@ def main():
         if use_film:
             log_entry["film_strength"] = round(film_strength, 4)
             log_entry["lambda_film_eff"] = round(criterion.lambda_film, 6)
+        if cur_ss_rw > 1.0:
+            log_entry["ss_reweight"] = round(cur_ss_rw, 4)
         if ema_alpha > 0 and ema_metric is not None:
             log_entry["ema_macro_norm_mae"] = round(float(ema_metric), 6)
         for k, v in train_losses.items():

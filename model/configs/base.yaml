@@ -86,6 +86,11 @@ training:
   tf_hold_frac: 0.15
   tf_end_frac: 0.25
 
+  # v16: late-stage ss reweighting (on L_slack + L_at only)
+  ss_reweight_start: 100    # epoch to begin ramp
+  ss_reweight_end: 120      # epoch ramp reaches full weight
+  ss_reweight_factor: 1.4   # w_proc for ss samples (ff/tt stay 1.0)
+
 # ---- Loss ----
 loss:
   huber_delta: 1.0
