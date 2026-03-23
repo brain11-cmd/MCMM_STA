@@ -1,5 +1,13 @@
 """
-Full model: Physics-Informed Multi-Anchor GNN STA (v3.5).
+Full model: Physics-Informed Multi-Anchor GNN STA (v3.6).
+
+v3.6 changes (v17):
+  - PVTEncoder: gated cross-interaction for nonlinear P-V-T coupling.
+    base = e_p + e_v + e_t  (additive, preserved from v14)
+    cross = [e_p⊙e_v, e_p⊙e_t, e_v⊙e_t]  (pairwise bilinear)
+    z_pvt = base + sigmoid(gate(base)) * proj(cross)
+    Gate bias = -2.0 (sigmoid≈0.12) for conservative start.
+    Targets SS corner underperformance caused by super-linear V×P interaction.
 
 v3.5 changes (v14):
   - EndpointResidualHead: endpoint-aware pooling.
@@ -24,7 +32,7 @@ v3.1 changes:
 
 Architecture:
   process_embed: Embedding(3, 8)         [node input]
-  pvt_encoder:   PVTEncoder(3 → 16)      [conditioning]
+  pvt_encoder:   PVTEncoder(3 → 16)      [conditioning, gated cross-interaction]
   gnn:           GraphSAGEEncoder(26 → 128, 3 layers, optional global token)
   edge_head:     DualEdgeHead(cell: 726→192→128, net: 726→128→128)
   film_edge:     FiLMLayer v2 (scale-only, no beta) when use_film=True
@@ -64,12 +72,15 @@ class ModelOutput:
 
 
 class PVTEncoder(nn.Module):
-    """Separable PVT condition encoder.
+    """Separable PVT condition encoder with gated cross-interaction (v17).
 
-    Produces z_pvt = e_p + e_v + e_t via additive decomposition, enforcing
-    the physical prior that process, voltage, and temperature effects on
-    delay are approximately separable.  Improves generalization to unseen
-    PVT combinations compared to flat concatenation.
+    Base: z_base = e_p + e_v + e_t  (additive, works well for ff/tt)
+    Cross: pairwise element-wise products capture nonlinear P-V-T coupling
+           that dominates in extreme corners (e.g. SS low-voltage).
+    Gate:  sigmoid-gated residual injection, bias=-2.0 so interaction starts
+           near-zero (sigmoid≈0.12) — preserves v14 behavior at init.
+
+    z_pvt = z_base + gate(z_base) * proj(cross)
     """
 
     def __init__(self, num_processes: int = 3, pvt_dim: int = 16):
@@ -78,6 +89,10 @@ class PVTEncoder(nn.Module):
         self.proc_embed = nn.Embedding(num_processes, pvt_dim)
         self.v_proj = nn.Linear(1, pvt_dim)
         self.t_proj = nn.Linear(1, pvt_dim)
+
+        self.cross_proj = nn.Linear(3 * pvt_dim, pvt_dim)
+        self.cross_gate = nn.Linear(pvt_dim, pvt_dim)
+        nn.init.constant_(self.cross_gate.bias, -2.0)
 
     def forward(self, process_id: torch.Tensor,
                 v_norm: torch.Tensor, t_norm: torch.Tensor) -> torch.Tensor:
@@ -95,7 +110,14 @@ class PVTEncoder(nn.Module):
         e_p = self.proc_embed(process_id)[0]      # [pvt_dim]
         e_v = self.v_proj(v_norm.float().view(1))  # [pvt_dim]
         e_t = self.t_proj(t_norm.float().view(1))  # [pvt_dim]
-        return e_p + e_v + e_t                     # [pvt_dim]
+
+        base = e_p + e_v + e_t                     # [pvt_dim]
+
+        cross = torch.cat([e_p * e_v, e_p * e_t, e_v * e_t], dim=-1)  # [3*pvt_dim]
+        cross_feat = self.cross_proj(cross)         # [pvt_dim]
+        gate = torch.sigmoid(self.cross_gate(base)) # [pvt_dim]
+
+        return base + gate * cross_feat             # [pvt_dim]
 
 
 class EndpointResidualHead(nn.Module):
