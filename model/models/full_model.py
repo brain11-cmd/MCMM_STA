@@ -94,6 +94,9 @@ class PVTEncoder(nn.Module):
         self.cross_gate = nn.Linear(pvt_dim, pvt_dim)
         nn.init.constant_(self.cross_gate.bias, -2.0)
 
+        self._diag_gate_mean: float = 0.0
+        self._diag_cross_ratio: float = 0.0
+
     def forward(self, process_id: torch.Tensor,
                 v_norm: torch.Tensor, t_norm: torch.Tensor) -> torch.Tensor:
         """
@@ -116,6 +119,11 @@ class PVTEncoder(nn.Module):
         cross = torch.cat([e_p * e_v, e_p * e_t, e_v * e_t], dim=-1)  # [3*pvt_dim]
         cross_feat = self.cross_proj(cross)         # [pvt_dim]
         gate = torch.sigmoid(self.cross_gate(base)) # [pvt_dim]
+
+        self._diag_gate_mean = gate.mean().item()
+        base_norm = base.norm().item()
+        update_norm = (gate * cross_feat).norm().item()
+        self._diag_cross_ratio = update_norm / max(base_norm, 1e-8)
 
         return base + gate * cross_feat             # [pvt_dim]
 

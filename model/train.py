@@ -379,7 +379,7 @@ def evaluate(model, loader, criterion, normalizer, device, epoch=0, total_epochs
         all_mk.append(sample.mask.cpu())
 
         scale = slack_scale_p95(st_cpu)
-        per_sample_info.append({
+        info = {
             "benchmark": sample.benchmark,
             "corner": sample.target_corner,
             "slack_mae": (sp_cpu - st_cpu).abs().mean().item(),
@@ -387,7 +387,11 @@ def evaluate(model, loader, criterion, normalizer, device, epoch=0, total_epochs
             "edge_mae": edge_delay_metrics(
                 out.d_hat.cpu(), sample.d_target_true.cpu(), sample.mask.cpu(),
             ).get("edge_mae", 0.0),
-        })
+        }
+        if hasattr(model, 'pvt_encoder') and hasattr(model.pvt_encoder, '_diag_gate_mean'):
+            info["pvt_gate_mean"] = model.pvt_encoder._diag_gate_mean
+            info["pvt_cross_ratio"] = model.pvt_encoder._diag_cross_ratio
+        per_sample_info.append(info)
 
     if count > 0:
         for k in total_losses:
@@ -401,6 +405,29 @@ def evaluate(model, loader, criterion, normalizer, device, epoch=0, total_epochs
 
     report = compute_eval_report(per_sample_info)
     metrics.update(report)
+
+    # PVT gate diagnostics per corner family
+    from collections import defaultdict
+    gate_by_corner = defaultdict(list)
+    cross_by_corner = defaultdict(list)
+    for s in per_sample_info:
+        if "pvt_gate_mean" in s:
+            c = s.get("corner", "")
+            cf = c[:2].lower() if len(c) >= 2 else "unk"
+            if cf not in ("ff", "ss"):
+                cf = "tt"
+            gate_by_corner[cf].append(s["pvt_gate_mean"])
+            cross_by_corner[cf].append(s["pvt_cross_ratio"])
+    if gate_by_corner:
+        all_gates = [g for gs in gate_by_corner.values() for g in gs]
+        metrics["pvt_gate_mean"] = sum(all_gates) / len(all_gates)
+        all_cross = [c for cs in cross_by_corner.values() for c in cs]
+        metrics["pvt_cross_ratio"] = sum(all_cross) / len(all_cross)
+        for cf in ("ff", "tt", "ss"):
+            if cf in gate_by_corner:
+                metrics[f"pvt_gate_{cf}"] = sum(gate_by_corner[cf]) / len(gate_by_corner[cf])
+                metrics[f"pvt_cross_{cf}"] = sum(cross_by_corner[cf]) / len(cross_by_corner[cf])
+
     return metrics
 
 
@@ -782,6 +809,23 @@ def main():
                     parts.append(f"{bm_name}={val_metrics[nm_key]:.4f}")
             if parts:
                 print(f"    breakdown: {' | '.join(parts)}")
+
+            # Corner breakdown: ff / tt / ss
+            ff_nm = val_metrics.get("ff_norm_mae", -1)
+            tt_nm = val_metrics.get("tt_norm_mae", -1)
+            ss_nm = val_metrics.get("ss_norm_mae", -1)
+            lss_nm = val_metrics.get("large_ss_norm_mae", -1)
+            print(f"    corners: ff={ff_nm:.4f} | tt={tt_nm:.4f} | ss={ss_nm:.4f} | large_ss={lss_nm:.4f}")
+
+            # PVT gate diagnostics
+            g_mean = val_metrics.get("pvt_gate_mean", None)
+            if g_mean is not None:
+                g_ff = val_metrics.get("pvt_gate_ff", -1)
+                g_tt = val_metrics.get("pvt_gate_tt", -1)
+                g_ss = val_metrics.get("pvt_gate_ss", -1)
+                cr = val_metrics.get("pvt_cross_ratio", 0)
+                print(f"    pvt_gate: mean={g_mean:.4f} | ff={g_ff:.4f} | tt={g_tt:.4f} | ss={g_ss:.4f}")
+                print(f"    cross_ratio: update/base={cr:.4f}")
 
         # Primary metric: macro_norm_mae with large constraint
         if len(val_ds) > 0 and "macro_norm_mae" in val_metrics:
